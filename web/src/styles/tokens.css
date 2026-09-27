@@ -1,0 +1,152 @@
+/*
+ * Design tokens. Dark is the default; light follows the OS unless the user picks one.
+ * Surfaces are told apart by background, not borders: bg → surface → surface-2 → surface-3.
+ * The legacy names (--panel*, --bg-sunken) alias the new ladder so older selectors keep working.
+ */
+:root {
+  --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* type scale */
+  --fs-caption: 12px;
+  --fs-small: 13px;
+  --fs-base: 14px;
+  --fs-section: 15px;
+  --fs-title: 22px;
+
+  /* spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* surfaces */
+  --bg: #0f1012;
+  --surface: #16181b;
+  --surface-2: #1c1f23;
+  --surface-3: #24282d;
+  --surface-hover: #1f2226;
+  --field: #111315;
+  --line: #262a30;
+  --line-soft: #1e2125;
+  --line-strong: #353a42;
+
+  --text: #e8eaed;
+  --text-2: #a7aeb8;
+  --text-3: #707882;
+
+  --accent: #f0a23b; /* FrameForge amber: active work, primary actions */
+  --accent-hover: #f5b45c;
+  --accent-ink: #1b1204;
+  --accent-soft: rgba(240, 162, 59, 0.12);
+  --accent-line: rgba(240, 162, 59, 0.45);
+
+  --ok: #4cc38a;
+  --ok-soft: rgba(76, 195, 138, 0.12);
+  --warn: #e8b43c;
+  --warn-soft: rgba(232, 180, 60, 0.12);
+  --err: #f0685c;
+  --err-soft: rgba(240, 104, 92, 0.12);
+  --info: #6aa6f8;
+  --info-soft: rgba(106, 166, 248, 0.12);
+
+  --c-h264: #6aa6f8;
+  --c-hevc: #38c7b0;
+  --c-av1: #b08cf5;
+  --c-other: #9aa2ad;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --control-h: 34px;
+  --control-h-sm: 28px;
+  --focus-ring: 0 0 0 3px rgba(240, 162, 59, 0.28);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.35);
+  --overlay: rgba(4, 5, 6, 0.62);
+
+  --sidebar-w: 244px;
+  --topbar-h: 56px;
+  --page-max: 1320px;
+
+  /* legacy aliases */
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --bg-sunken: var(--field);
+}
+
+:root[data-theme="light"] {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f5f6f8;
+  --surface-3: #eceef1;
+  --surface-hover: #f1f2f5;
+  --field: #ffffff;
+  --line: #dfe2e7;
+  --line-soft: #eceef1;
+  --line-strong: #c9ced6;
+  --text: #16191d;
+  --text-2: #4b535e;
+  --text-3: #7a828d;
+  --accent: #c97a12;
+  --accent-hover: #b36a0b;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(201, 122, 18, 0.1);
+  --accent-line: rgba(201, 122, 18, 0.45);
+  --ok: #1f9a62;
+  --ok-soft: rgba(31, 154, 98, 0.1);
+  --warn: #a77a0c;
+  --warn-soft: rgba(183, 134, 15, 0.12);
+  --err: #d2473a;
+  --err-soft: rgba(210, 71, 58, 0.1);
+  --info: #2f73d9;
+  --info-soft: rgba(47, 115, 217, 0.1);
+  --c-h264: #2f73d9;
+  --c-hevc: #13937f;
+  --c-av1: #7b52d6;
+  --focus-ring: 0 0 0 3px rgba(201, 122, 18, 0.25);
+  --shadow: 0 16px 40px rgba(20, 24, 30, 0.14), 0 2px 6px rgba(20, 24, 30, 0.06);
+  --shadow-sm: 0 6px 18px rgba(20, 24, 30, 0.1);
+  --overlay: rgba(20, 24, 30, 0.4);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #f5f6f8;
+    --surface-3: #eceef1;
+    --surface-hover: #f1f2f5;
+    --field: #ffffff;
+    --line: #dfe2e7;
+    --line-soft: #eceef1;
+    --line-strong: #c9ced6;
+    --text: #16191d;
+    --text-2: #4b535e;
+    --text-3: #7a828d;
+    --accent: #c97a12;
+    --accent-hover: #b36a0b;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(201, 122, 18, 0.1);
+    --accent-line: rgba(201, 122, 18, 0.45);
+    --ok: #1f9a62;
+    --ok-soft: rgba(31, 154, 98, 0.1);
+    --warn: #a77a0c;
+    --warn-soft: rgba(183, 134, 15, 0.12);
+    --err: #d2473a;
+    --err-soft: rgba(210, 71, 58, 0.1);
+    --info: #2f73d9;
+    --info-soft: rgba(47, 115, 217, 0.1);
+    --c-h264: #2f73d9;
+    --c-hevc: #13937f;
+    --c-av1: #7b52d6;
+    --focus-ring: 0 0 0 3px rgba(201, 122, 18, 0.25);
+    --shadow: 0 16px 40px rgba(20, 24, 30, 0.14), 0 2px 6px rgba(20, 24, 30, 0.06);
+    --shadow-sm: 0 6px 18px rgba(20, 24, 30, 0.1);
+    --overlay: rgba(20, 24, 30, 0.4);
+  }
+}

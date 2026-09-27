@@ -1,0 +1,47 @@
+# Development environment. Source is bind-mounted; restart `dev` to pick up Python changes.
+#
+#   docker compose -f docker-compose.dev.yml up --build dev web
+#   UI with hot reload: http://localhost:5173   API: http://localhost:8686
+#   Tests: docker compose -f docker-compose.dev.yml run --rm dev pytest -q
+#   NVIDIA GPU for `dev`: add `-f docker/compose/dev-gpu-nvidia.yml` to every command.
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        FF_DEV: "1"
+    image: frameforge:dev
+    environment:
+      - FF_ROLE=all
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    ports:
+      - "8686:8686"
+    volumes:
+      - ./shared:/app/shared
+      - ./server:/app/server
+      - ./node:/app/node
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+      - ./.dev-config:/config
+      - ./dev-media:/media
+
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /web
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
+    environment:
+      - VITE_API_TARGET=http://dev:8686
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/web
+      - web_node_modules:/web/node_modules
+    depends_on:
+      - dev
+
+volumes:
+  web_node_modules:

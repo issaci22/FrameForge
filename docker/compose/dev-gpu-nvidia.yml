@@ -1,0 +1,17 @@
+# Development only: give the `dev` service the NVIDIA GPU (NVENC / NVDEC).
+#
+#   docker compose -f docker-compose.dev.yml -f docker/compose/dev-gpu-nvidia.yml up -d dev
+#   docker compose -f docker-compose.dev.yml -f docker/compose/dev-gpu-nvidia.yml exec dev python -m frameforge_node --detect
+#
+# The base docker-compose.dev.yml stays GPU-free so it runs on any machine. Host requirements are the same as
+# gpu-nvidia.yml (Linux) or gpu-windows-nvidia.yml (Docker Desktop / WSL2). See docs/gpu.md.
+
+services:
+  dev:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu, video, compute, utility]

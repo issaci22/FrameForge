@@ -1,0 +1,52 @@
+# A standalone FrameForge transcoding node (FF_ROLE=node) on another machine, or a second
+# node on the same machine (for example to use a second GPU).
+#
+# 1. In the web UI: Nodes → Add node. Copy the token it shows (shown once).
+# 2. Fill in FF_SERVER_URL and FF_NODE_TOKEN below.
+# 3. Mount the SAME media the server sees. If the path differs on this machine, add a path
+#    mapping for the node in the UI (server path → node path). Example: the server sees
+#    /media/vods and this node mounts it at /mnt/vods.
+# 4. Build the image here too (same repo, same version as the server), then:
+#
+#      docker compose -f docker/compose/node.yml up -d --build
+#
+# The node opens an outbound WebSocket to the server; no ports need to be opened on the node.
+# Protocol versions must match: update server and nodes together.
+
+services:
+  frameforge-node:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+    image: frameforge:latest
+    container_name: frameforge-node
+    restart: unless-stopped
+    environment:
+      - FF_ROLE=node
+      - FF_SERVER_URL=http://frameforge-server.lan:8686   # how THIS container reaches the server (never localhost, even on the same machine)
+      - FF_NODE_TOKEN=ffn_paste-the-token-from-the-web-ui
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - ./frameforge-node:/config          # hardware-detection cache
+      - /mnt/vods:/mnt/vods                # the same recordings the server sees
+    # Give a job that is replacing files time to finish safely.
+    stop_grace_period: 60s
+
+    # --- Pick the GPU for this node (see docs/gpu.md) ---
+    # Intel / AMD VA-API. Pin one render node to split two GPUs across two node containers
+    # (e.g. Arc in the main container, Ryzen APU graphics here). Keep the same name on both sides:
+    # the node reads the vendor from the host's /sys/class/drm/<name>. Find the right one with
+    # `ls -l /dev/dri/by-path/`.
+    # devices:
+    #   - /dev/dri/renderD129:/dev/dri/renderD129
+    #
+    # NVIDIA:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video, compute, utility]

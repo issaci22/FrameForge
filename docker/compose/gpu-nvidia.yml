@@ -1,0 +1,23 @@
+# NVIDIA NVENC / NVDEC.
+#
+#   docker compose -f docker-compose.yml -f docker/compose/gpu-nvidia.yml up -d
+#
+# Host requirements:
+#   * NVIDIA driver on the host (`nvidia-smi` works there).
+#   * Linux: the NVIDIA Container Toolkit (nvidia-ctk runtime configure --runtime=docker).
+#   * Windows: Docker Desktop with the WSL2 backend and a current NVIDIA Windows driver.
+#     gpu-windows-nvidia.yml is the Windows-specific version (pinned GPU, notes on Intel iGPUs).
+#   * AV1 encoding needs an RTX 40-series (Ada) or newer GPU.
+#
+# Verify:
+#   docker compose exec frameforge python -m frameforge_node --detect
+
+services:
+  frameforge:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video, compute, utility]

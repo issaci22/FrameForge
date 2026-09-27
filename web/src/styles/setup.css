@@ -1,0 +1,938 @@
+/*
+ * First-run setup wizard: one centered, focused flow on the tokens in tokens.css and the shared primitives.
+ * Welcome and "all set" are full-screen heroes; the steps between them share a slim header with the
+ * progress stepper, one content column, and an action bar aligned to that column.
+ * Motion is short and purposeful (entering, changing steps, success), and off under prefers-reduced-motion.
+ */
+
+.setup {
+  --setup-col: 880px;
+  --setup-narrow: 560px;
+  --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--bg);
+}
+.setup.is-hero {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* ---------------------------------------------------------------- top bar */
+.setup-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: "brand steps meta";
+  align-items: start;
+  column-gap: var(--sp-6);
+  row-gap: 4px;
+  padding: 10px 24px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+  animation: setup-drop 0.36s var(--ease-out) both;
+}
+/* Logo and account line up with the stepper's circles, not its labels. */
+.setup-top > .logo,
+.setup-meta {
+  min-height: 34px;
+}
+.setup-top > .logo {
+  grid-area: brand;
+  justify-self: start;
+}
+.setup-top > .stepper {
+  grid-area: steps;
+  width: 720px;
+}
+.setup-meta {
+  grid-area: meta;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+.setup-meta .who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setup-meta .who b {
+  color: var(--text-2);
+  font-weight: 550;
+}
+.setup-meta .btn {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- stepper */
+.stepper ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+.stepper li {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+/* The line into each step: a track, and an amber fill that grows up to the current step. */
+.stepper li + li::before,
+.stepper li + li::after {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: calc(-50% + 20px);
+  right: calc(50% + 20px);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line);
+}
+.stepper li + li::after {
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.45s var(--ease-out);
+}
+.stepper li.reached::after {
+  transform: scaleX(1);
+}
+.stepper button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 2px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font: 500 var(--fs-caption) / 1.3 var(--font-ui);
+  cursor: pointer;
+}
+.stepper button:disabled {
+  cursor: not-allowed;
+}
+.stepper button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.st-dot {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font: 600 11.5px var(--font-mono);
+  color: var(--text-3);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  transition: background 0.25s, color 0.25s, box-shadow 0.3s var(--ease-out);
+}
+.st-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+.stepper button:hover:not(:disabled) .st-label {
+  color: var(--text);
+}
+.st.todo button:hover:not(:disabled) .st-dot {
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+}
+.st.current .st-dot {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.st.current .st-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.st.done .st-dot {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+.st.done .st-dot svg {
+  animation: pop 0.34s var(--ease-out) both;
+}
+.st.error .st-dot {
+  background: var(--err-soft);
+  color: var(--err);
+  box-shadow: none;
+}
+.st.done .st-label,
+.st.error .st-label {
+  color: var(--text-2);
+}
+.st.locked button {
+  opacity: 0.45;
+}
+.st-flag {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.st-flag.warn {
+  background: var(--warn);
+}
+.st-flag.err {
+  background: var(--err);
+}
+
+/* ---------------------------------------------------------------- content column */
+.setup-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  /* Keeps the column centered under the header whether or not the page scrolls. */
+  scrollbar-gutter: stable both-edges;
+}
+.setup-stage {
+  padding: 36px 24px 72px;
+  animation: step-in 0.34s var(--ease-out) both;
+}
+.setup-stage.fwd {
+  --enter-from: 20px;
+}
+.setup-stage.back {
+  --enter-from: -20px;
+}
+.step {
+  max-width: var(--setup-col);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.step.narrow {
+  max-width: var(--setup-narrow);
+}
+.setup-work {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- step header + guide */
+.step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+}
+.step-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin-top: 2px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.step-titles {
+  flex: 1;
+  min-width: 0;
+}
+.step-eyebrow {
+  font-size: var(--fs-caption);
+  font-weight: 550;
+  color: var(--accent);
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.step-head h1 {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+/* Headings receive focus on step changes so screen readers announce them; they aren't controls, so no ring. */
+#setup-step-title:focus,
+#setup-step-title:focus-visible {
+  outline: none;
+}
+.step-lede {
+  margin-top: 8px;
+  max-width: 70ch;
+  color: var(--text-2);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.guide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 12px 0 0 -8px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 var(--fs-small) var(--font-ui);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.guide-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.guide-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.guide-toggle > svg:first-child {
+  color: var(--accent);
+}
+.guide-toggle .chev {
+  color: var(--text-3);
+  transition: transform 0.22s var(--ease-out);
+}
+.guide-toggle[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+/* Collapses to nothing (the negative margin cancels the column gap) and expands smoothly. */
+.guide-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--sp-6));
+  opacity: 0;
+  visibility: hidden;
+  transition: grid-template-rows 0.3s var(--ease-out), margin-top 0.3s var(--ease-out), opacity 0.2s ease, visibility 0s linear 0.3s;
+}
+.guide-wrap.open {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows 0.3s var(--ease-out), margin-top 0.3s var(--ease-out), opacity 0.25s ease 0.05s, visibility 0s;
+}
+.guide-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+.setup-guide {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-5) var(--sp-6);
+  padding: 20px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line-soft));
+}
+.guide-sec h3 {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.guide-sec .body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.guide-sec b {
+  color: var(--text);
+  font-weight: 600;
+}
+.guide-sec ol,
+.guide-sec ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.guide-sec li + li {
+  margin-top: 3px;
+}
+.guide-sec .kv {
+  grid-template-columns: 96px minmax(0, 1fr);
+  font-size: var(--fs-small);
+}
+
+/* ---------------------------------------------------------------- action bar */
+/* Toasts render next to the page root; lift them above the action bar. */
+.setup ~ .toasts {
+  bottom: 84px;
+}
+.setup-foot {
+  padding: 12px 24px;
+  background: var(--bg);
+  border-top: 1px solid var(--line-soft);
+  animation: setup-lift 0.36s var(--ease-out) both;
+}
+.setup-foot-inner {
+  max-width: var(--setup-col);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.setup-foot.narrow .setup-foot-inner {
+  max-width: var(--setup-narrow);
+}
+.setup-foot .status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: var(--fs-small);
+  color: var(--text-3);
+  text-align: right;
+  transition: color 0.2s;
+}
+.setup-foot .status svg {
+  flex-shrink: 0;
+}
+.setup-foot .status.err {
+  color: var(--err);
+}
+.setup-foot .status.warn {
+  color: var(--warn);
+}
+.setup-foot .status.ok {
+  color: var(--ok);
+}
+
+/* ---------------------------------------------------------------- welcome / all set */
+.hero-stage {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  animation: none;
+}
+.hero {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+/* Everything after the mark fades up in reading order. */
+.hero > * {
+  animation: fade-up 0.5s var(--ease-out) both;
+}
+.hero > :nth-child(2) {
+  animation-delay: 0.16s;
+}
+.hero > :nth-child(3) {
+  animation-delay: 0.22s;
+}
+.hero > :nth-child(4) {
+  animation-delay: 0.3s;
+}
+.hero > :nth-child(5) {
+  animation-delay: 0.36s;
+}
+.hero > :nth-child(n + 6) {
+  animation-delay: 0.42s;
+}
+/* The logo's three bars, large: they rise one after another like frames. */
+.hero > .hero-mark {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 48px;
+  margin-bottom: 28px;
+  animation: none;
+}
+.hero-mark span {
+  width: 11px;
+  height: 48px;
+  border-radius: 3px;
+  background: var(--accent);
+  transform-origin: bottom center;
+  animation: bar-rise 0.6s var(--ease-out) both;
+}
+.hero-mark span:nth-child(2) {
+  opacity: 0.7;
+  animation-delay: 0.08s;
+}
+.hero-mark span:nth-child(3) {
+  opacity: 0.45;
+  animation-delay: 0.16s;
+}
+.hero-title {
+  font-size: 30px;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.hero-lede {
+  margin-top: 12px;
+  max-width: 62ch;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.6;
+  text-wrap: balance;
+}
+.hero-plan,
+.next-list {
+  width: 100%;
+  margin-top: 32px;
+  padding: 20px 22px 22px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-lg);
+}
+.hero-plan h2 {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 16px;
+}
+.hero-plan ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 28px;
+}
+.hero-plan li,
+.next-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.plan-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.plan-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--fs-small);
+  line-height: 1.45;
+}
+.plan-text b {
+  font-weight: 600;
+}
+.plan-text span {
+  color: var(--text-3);
+}
+.hero-notes {
+  list-style: none;
+  width: 100%;
+  margin: 20px 0 0;
+  padding: 0 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 28px;
+  text-align: left;
+  font-size: var(--fs-small);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.hero-notes li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.hero-notes svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.hero-notes li:first-child svg {
+  color: var(--ok);
+}
+.hero-notes b {
+  color: var(--text-2);
+  font-weight: 550;
+}
+.hero-cta {
+  margin-top: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+.hero-foot {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+.hero-foot b {
+  color: var(--text-2);
+  font-weight: 550;
+}
+.hero-sys {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+/* All set: a check that draws itself, then what happens next. */
+.done-mark {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 24px;
+}
+.hero > .done-mark {
+  animation: none;
+}
+.done-mark .ring {
+  fill: var(--ok-soft);
+  stroke: var(--ok);
+  stroke-width: 2.5;
+  stroke-dasharray: 183;
+  stroke-dashoffset: 183;
+  transform: rotate(-90deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: draw 0.7s var(--ease-out) 0.05s forwards;
+}
+.done-mark .tick {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 37;
+  stroke-dashoffset: 37;
+  animation: draw 0.4s var(--ease-out) 0.55s forwards;
+}
+.next-list {
+  margin: 28px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.next-list li > span:last-child {
+  padding-top: 6px;
+}
+.next-list b {
+  color: var(--text);
+  font-weight: 600;
+}
+.finished-warn {
+  width: 100%;
+  margin-top: 16px;
+  text-align: left;
+}
+
+/* ---------------------------------------------------------------- administrator */
+.admin-card > .panel-body {
+  padding: 24px;
+}
+.admin-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 4px;
+  font-size: var(--fs-small);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.admin-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.account-done {
+  overflow: hidden;
+}
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+}
+.account-head h2 {
+  font-size: var(--fs-section);
+}
+.done-badge {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.account-done.fresh .done-badge {
+  animation: pop 0.45s var(--ease-out) both;
+}
+.account-done.fresh .done-badge svg {
+  animation: pop 0.4s var(--ease-out) 0.12s both;
+}
+.account-next {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px 20px;
+}
+/* Fills over the pause before Storage opens (ACCOUNT_PAUSE_MS in SetupPage.tsx). */
+.account-next-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.account-next-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transform-origin: left center;
+  animation: fill-bar 1.4s linear both;
+}
+
+/* ---------------------------------------------------------------- review: applying */
+.apply-progress {
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: height 0.25s var(--ease-out), opacity 0.2s;
+}
+.apply-progress.on {
+  height: 4px;
+  opacity: 1;
+}
+.apply-progress .timeline {
+  border-radius: 0;
+}
+
+/* ---------------------------------------------------------------- feedback motion */
+.appear {
+  animation: fade-up 0.3s var(--ease-out) both;
+}
+/* The first problem on a step, after a blocked Continue: one soft ring to draw the eye. */
+.attention {
+  border-radius: 4px;
+  animation: attention 1s ease-out;
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--enter-from, 0));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes setup-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@keyframes setup-lift {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes bar-rise {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fill-bar {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes attention {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--err) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+/* ---------------------------------------------------------------- responsive */
+@media (max-width: 1200px) {
+  .setup-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand meta"
+      "steps steps";
+    padding-bottom: 10px;
+  }
+  .setup-top > .stepper {
+    width: min(760px, 100%);
+    justify-self: center;
+  }
+}
+@media (max-width: 720px) {
+  .setup-top {
+    padding: 8px 16px 10px;
+  }
+  .setup-meta .who {
+    display: none;
+  }
+  /* Phones: circles only. Each keeps its full name for assistive tech, and the step title says where you are. */
+  .st-label {
+    display: none;
+  }
+  .stepper button {
+    padding: 4px 2px;
+  }
+  .st-dot {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
+  }
+  .stepper li + li::before,
+  .stepper li + li::after {
+    left: calc(-50% + 17px);
+    right: calc(50% + 17px);
+  }
+  .setup-stage {
+    padding: 24px 16px 48px;
+  }
+  .step {
+    gap: var(--sp-5);
+  }
+  .guide-wrap {
+    margin-top: calc(-1 * var(--sp-5));
+  }
+  .step-head {
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .step-icon {
+    width: 40px;
+    height: 40px;
+    margin-top: 0;
+  }
+  .step-head h1 {
+    font-size: 21px;
+  }
+  .setup-guide {
+    padding: 16px;
+  }
+  .setup ~ .toasts {
+    bottom: 112px;
+  }
+  .setup-foot {
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  }
+  .setup-foot-inner {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .setup-foot .status {
+    order: -1;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
+  .setup-foot-inner .btn.primary {
+    flex: 1;
+  }
+  .hero-stage {
+    align-items: flex-start;
+    padding: 36px 16px 40px;
+  }
+  .hero-title {
+    font-size: 25px;
+  }
+  .hero-lede {
+    font-size: var(--fs-base);
+  }
+  .hero-plan,
+  .next-list {
+    padding: 16px;
+  }
+  /* The plan shrinks to names so Begin setup stays near the first screen; each step explains itself. */
+  .hero-plan ol {
+    gap: 12px 16px;
+  }
+  .hero-plan .plan-text {
+    align-self: center;
+  }
+  .hero-plan .plan-text span {
+    display: none;
+  }
+  .hero-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .admin-card > .panel-body {
+    padding: 20px 16px;
+  }
+  .hero-cta {
+    width: 100%;
+    flex-direction: column;
+  }
+  .hero-cta .btn {
+    width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .setup *,
+  .setup *::before,
+  .setup *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}

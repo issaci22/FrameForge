@@ -1,0 +1,41 @@
+# FrameForge: server + built-in transcoding node in one container.
+#
+#   docker compose up -d          then open http://<this-machine>:8686
+#
+# Edit the media volume below so FrameForge can see your recordings. Paths you
+# add as libraries in the web UI are paths INSIDE the container (e.g. /media/vods).
+# GPU acceleration: uncomment ONE of the blocks at the bottom (see docs/gpu.md).
+
+services:
+  frameforge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: frameforge:latest
+    container_name: frameforge
+    restart: unless-stopped
+    ports:
+      - "8686:8686"
+    environment:
+      - FF_ROLE=all            # all = server + built-in node, server = no local transcoding
+      - PUID=${PUID:-1000}     # user/group that owns your media on the host (`id` on Linux)
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}      # used for schedules / quiet hours
+    volumes:
+      - ./config:/config                       # database, logs, node state
+      - ${MEDIA_PATH:-./media}:/media          # your recordings (read-write: FrameForge writes outputs here)
+    # Give running jobs time to finish moving files safely on shutdown.
+    stop_grace_period: 60s
+
+    # --- NVIDIA (NVENC/NVDEC) — needs the NVIDIA Container Toolkit on the host ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video, compute, utility]
+
+    # --- Intel Quick Sync / VA-API, or AMD VA-API ---
+    # devices:
+    #   - /dev/dri:/dev/dri

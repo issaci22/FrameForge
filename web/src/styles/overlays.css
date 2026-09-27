@@ -1,0 +1,347 @@
+/* Overlays: modal, drawer, popover (confirm), menu, tooltip, toasts. */
+
+/* ---------------------------------------------------------------- modal */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px 16px;
+  animation: fade-in 0.12s ease;
+}
+.modal {
+  width: 100%;
+  max-width: 640px;
+  max-height: calc(94vh - 16px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  animation: rise 0.14s ease;
+}
+.modal.wide {
+  max-width: 900px;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 14px 24px;
+  flex-shrink: 0;
+}
+.modal-head h2 {
+  font-size: 17px;
+}
+.modal-head .sub {
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  margin-top: 4px;
+}
+.modal-body {
+  padding: 4px 24px 24px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.modal-foot {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 24px;
+  border-top: 1px solid var(--line-soft);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (max-width: 640px) {
+  .overlay {
+    padding: 12px 0 0;
+    align-items: flex-end;
+  }
+  .modal,
+  .modal.wide {
+    max-height: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .modal-head {
+    padding: 16px 12px 12px 16px;
+  }
+  .modal-body {
+    padding: 4px 16px 20px;
+  }
+  .modal-foot {
+    padding: 12px 16px;
+  }
+}
+
+/* ---------------------------------------------------------------- drawer */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--overlay);
+  animation: fade-in 0.12s ease;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(640px, 100vw);
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  animation: slide-in 0.16s ease;
+}
+@keyframes slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+.drawer-head {
+  padding: 20px 20px 16px 24px;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.drawer-head h2 {
+  font-size: 17px;
+}
+.drawer-head .sub {
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.drawer-body {
+  padding: 20px 24px 32px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+@media (max-width: 640px) {
+  .drawer-head {
+    padding: 16px 12px 12px 16px;
+  }
+  .drawer-body {
+    padding: 16px 16px 28px;
+  }
+}
+
+/* ---------------------------------------------------------------- popover / menu / tooltip */
+.popover {
+  position: fixed;
+  z-index: 90;
+  width: 290px;
+  max-width: calc(100vw - 16px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fade-in 0.1s ease;
+}
+.popover .q {
+  font-weight: 600;
+  font-size: var(--fs-small);
+  line-height: 1.45;
+}
+.popover .d {
+  color: var(--text-2);
+  font-size: var(--fs-caption);
+  margin-top: 2px;
+}
+.popover .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 200px;
+  max-width: calc(100vw - 16px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  animation: fade-in 0.1s ease;
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: var(--fs-small) var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu button svg {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.menu button:hover:not(:disabled),
+.menu button:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+.menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.menu button.danger,
+.menu button.danger svg {
+  color: var(--err);
+}
+.menu button.danger:hover:not(:disabled),
+.menu button.danger:focus-visible {
+  background: var(--err-soft);
+}
+.menu .sep {
+  height: 1px;
+  background: var(--line-soft);
+  margin: 4px 2px;
+}
+.tip {
+  position: fixed;
+  z-index: 95;
+  max-width: 300px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  animation: fade-in 0.1s ease;
+}
+.tip-anchor {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+.info-tip {
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-3);
+  cursor: help;
+  vertical-align: middle;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+.info-tip:hover,
+.info-tip:focus-visible {
+  color: var(--text-2);
+}
+
+/* ---------------------------------------------------------------- toasts */
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 11px 10px 11px 14px;
+  box-shadow: var(--shadow);
+  width: 380px;
+  max-width: 100%;
+  font-size: var(--fs-small);
+  animation: rise 0.14s ease;
+}
+.toast .icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ok);
+}
+.toast.err .icon {
+  color: var(--err);
+}
+.toast .msg {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast .close {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+}
+.toast .close:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+@media (max-width: 640px) {
+  .toasts {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+  .toast {
+    width: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .modal,
+  .drawer,
+  .drawer-overlay,
+  .popover,
+  .menu,
+  .tip,
+  .toast {
+    animation: none;
+  }
+}

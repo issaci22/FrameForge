@@ -1,0 +1,36 @@
+# Intel Quick Sync / VA-API and AMD VA-API: pass the host's /dev/dri into the container.
+#
+#   docker compose -f docker-compose.yml -f docker/compose/gpu-intel-amd.yml up -d
+#
+# Linux hosts only. Docker Desktop on Windows/macOS cannot pass /dev/dri through.
+#
+# Host requirements:
+#   * Intel Arc A-series (Alchemist): kernel 6.2+ (6.8+ recommended) and a linux-firmware package new enough
+#     for DG2 (GuC/HuC). Battlemage needs the xe driver (6.12+). Intel iGPUs (Gen9+) work on any recent kernel.
+#   * AMD (Radeon or Ryzen APU graphics): the amdgpu kernel driver. No ROCm or AMF needed; the image brings
+#     its own Mesa VA-API driver.
+#   * `ls -l /dev/dri` must show renderD* nodes. You don't need group_add: the entrypoint joins
+#     the group that owns each render node, whatever its GID is on this host.
+#
+# Two GPUs, e.g. Intel Arc + AMD Ryzen 5 PRO 4650G (Vega iGPU):
+#   * Many AM4 boards switch the iGPU off when a graphics card is installed. Enable it in the BIOS
+#     if you want to use it; otherwise only the Arc shows up.
+#   * Passing all of /dev/dri (below) is fine. A node uses ONE VA-API/QSV device and prefers Intel,
+#     so this container encodes on the Arc (QSV and VA-API, including AV1). The Vega sits idle.
+#   * To use the Vega as well, run a second node container that gets only the Vega's render node
+#     (docker/compose/node.yml), and give this container only the Arc's. See docs/gpu.md.
+#   * Find which renderD belongs to which GPU with `ls -l /dev/dri/by-path/` plus `lspci | grep -Ei 'vga|display'`.
+#     The numbers can change when you add or remove a card or change BIOS graphics settings. Check again
+#     after hardware changes.
+#   * When pinning, keep the SAME name inside the container (renderD129:renderD129). The node reads each
+#     device's vendor from the host's /sys/class/drm/<name>. A renamed device gets the other GPU's vendor.
+#
+# Verify what works (real test encodes, no server needed):
+#   docker compose exec frameforge python -m frameforge_node --detect
+
+services:
+  frameforge:
+    devices:
+      - /dev/dri:/dev/dri
+      # Pin to one GPU instead: remove the line above and pass only its render node, same name on both sides.
+      # - /dev/dri/renderD128:/dev/dri/renderD128

@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+*.lcov
+
+# Web build and dependencies
+node_modules/
+web/dist/
+*.tsbuildinfo
+.vite/
+.eslintcache
+
+# Playwright / UI test artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+screenshots/
+
+# Local FrameForge data (databases, logs, media, backups)
+.dev-config/
+dev-media/
+dev-db-backup/
+/config/
+/media/
+frameforge-node/
+.frameforge-tmp/
+.frameforge-originals/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Scratch and backups
+/tmp/
+/scratch/
+*.bak
+*.orig
+*.tmp
+*.swp
+*~
+
+# Editors and OS
+.vscode/
+.idea/
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Local-only development notes (see AGENTS.md)
+/HANDOVER.md
+/PROMPT.md

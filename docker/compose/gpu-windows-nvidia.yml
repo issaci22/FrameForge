@@ -1,0 +1,35 @@
+# Windows + Docker Desktop (WSL2): NVIDIA NVENC / NVDEC, with an Intel iGPU in the same machine.
+# Reference host: RTX 4080 + Core i7-13700K (UHD Graphics 770).
+#
+#   docker compose -f docker-compose.yml -f docker/compose/gpu-windows-nvidia.yml up -d
+#
+# Host requirements:
+#   * Docker Desktop with the WSL2 backend (Settings -> General -> "Use the WSL 2 based engine").
+#   * A current NVIDIA driver installed on Windows. Don't install a Linux NVIDIA driver inside WSL:
+#     the Windows driver provides libcuda / libnvidia-encode to WSL2 and Docker Desktop's GPU support uses it.
+#     No separate NVIDIA Container Toolkit install is needed on Windows.
+#   * AV1 encoding needs an RTX 40-series (Ada) or newer GPU.
+#
+# Why the Intel iGPU is not passed through:
+#   WSL2 exposes GPUs only as /dev/dxg (DirectX paravirtualization), never as /dev/dri/renderD*. Docker Desktop's VM
+#   has no /dev/dri at all, so Quick Sync and VA-API can't reach the UHD 770 (or any Intel/AMD GPU) from a container.
+#   Their detection lines show "FAIL ... No /dev/dri render device in the container", which is expected here.
+#   Do NOT add /dev/dri devices to this file: container creation fails. For QSV use a Linux host (gpu-intel-amd.yml).
+#   Leaving the iGPU enabled in the BIOS is harmless and still helps Windows apps (OBS, Resolve) on the host.
+#
+# device_ids "0" pins the first NVIDIA GPU (check with `nvidia-smi -L`). With one NVIDIA card this is the same as
+# `count: all`. FFmpeg encodes on the first GPU the container sees, so for several NVIDIA cards run one node per GPU.
+#
+# Verify (expected on the reference host: av1_nvenc, h264_nvenc, hevc_nvenc and libx264/libx265/libsvtav1 OK,
+# NVDEC OK for av1/h264/hevc/vp9, QSV/VA-API/AMF FAIL):
+#   docker compose exec frameforge python -m frameforge_node --detect
+
+services:
+  frameforge:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu, video, compute, utility]
