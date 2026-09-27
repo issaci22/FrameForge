@@ -1,0 +1,263 @@
+# Build, test and publish the FrameForge image to ghcr.io/issaci22/frameforge.
+#
+#   pull request  -> test + build + smoke test, nothing is pushed
+#   push to main  -> same, then push :main and :sha-<short>
+#   tag vX.Y.Z    -> same, then push :X.Y.Z, :X.Y, :X (from 1.0 on) and :latest
+#   tag vX.Y.Z-rc.N (pre-release) -> push :X.Y.Z-rc.N only
+#
+# The image that passed the smoke test is the exact image that gets pushed (handed over as an artifact,
+# never rebuilt). Published version tags are never overwritten.
+
+name: Docker image
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    paths-ignore: ["**.md", "docs/**"]  # not applied to tag pushes
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded PR runs are cancelled. Runs on main and tags queue instead, so :main always ends on the newest commit.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/issaci22/frameforge
+  PLATFORM: linux/amd64
+
+jobs:
+  test:
+    name: Tests (pytest in the dev image)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build dev image (FF_DEV=1)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          build-args: FF_DEV=1
+          load: true
+          push: false
+          tags: frameforge:ci-test
+          cache-from: type=gha,scope=test
+          cache-to: type=gha,scope=test,mode=max
+
+      - name: Run pytest
+        run: |
+          docker run --rm \
+            -v "$PWD/tests:/app/tests:ro" \
+            -v "$PWD/pytest.ini:/app/pytest.ini:ro" \
+            frameforge:ci-test pytest -q -p no:cacheprovider
+
+  smoke:
+    name: Build + smoke test (production image)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      publish: ${{ steps.info.outputs.publish }}
+      release: ${{ steps.info.outputs.release }}
+      version: ${{ steps.info.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check version and decide what to publish
+        id: info
+        env:
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          version="$(python3 -c 'import re, pathlib; print(re.search(r"^__version__ = \"([^\"]+)\"$", pathlib.Path("shared/frameforge_shared/__init__.py").read_text(), re.M).group(1))')"
+          web_version="$(jq -r .version web/package.json)"
+          echo "Server version: $version, web version: $web_version, ref: $GITHUB_REF"
+          if [ "$version" != "$web_version" ]; then
+            echo "::error::shared/frameforge_shared/__init__.py says $version but web/package.json says $web_version. Bump them together."
+            exit 1
+          fi
+
+          release=false; stable=false
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+            if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Tag $tag is not a vX.Y.Z or vX.Y.Z-prerelease version tag."
+              exit 1
+            fi
+            if [ "$tag" != "v$version" ]; then
+              echo "::error::Tag $tag does not match the code version $version. Tag the commit that bumps the version to ${tag#v}."
+              exit 1
+            fi
+            release=true
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && stable=true
+          fi
+
+          publish=false
+          if [ "$EVENT" != "pull_request" ] && [ "$REPO" = "issaci22/FrameForge" ] \
+             && { [ "$GITHUB_REF" = "refs/heads/main" ] || [ "$release" = true ]; }; then
+            publish=true
+          fi
+
+          {
+            echo "version=$version"
+            echo "release=$release"
+            echo "stable=$stable"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "release=$release stable=$stable publish=$publish"
+
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+            type=raw,value=latest,enable=${{ steps.info.outputs.stable == 'true' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build production image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ env.PLATFORM }}
+          load: true
+          push: false
+          tags: frameforge:ci-smoke
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,scope=release,mode=max
+
+      - name: Smoke test
+        env:
+          VERSION: ${{ steps.info.outputs.version }}
+        run: |
+          fail() { echo "::error::$1"; docker logs ff-smoke || true; exit 1; }
+          api() { docker exec ff-smoke curl -fsS "http://127.0.0.1:8686$1"; }
+
+          # Fresh container, empty /config, no published ports.
+          docker run -d --name ff-smoke frameforge:ci-smoke
+
+          # 1. The image's own HEALTHCHECK must turn healthy (startup + database migrations worked).
+          status=starting
+          for _ in $(seq 1 60); do
+            [ "$(docker inspect -f '{{.State.Running}}' ff-smoke)" = true ] || fail "Container exited during startup."
+            status="$(docker inspect -f '{{.State.Health.Status}}' ff-smoke)"
+            [ "$status" = healthy ] && break
+            [ "$status" = unhealthy ] && fail "Healthcheck reported unhealthy."
+            sleep 3
+          done
+          [ "$status" = healthy ] || fail "Container did not become healthy within 3 minutes (last status: $status)."
+          echo "OK   healthcheck: healthy"
+
+          # 2. /healthz answers with the version in the code.
+          api /healthz | jq -e --arg v "$VERSION" '.ok == true and .version == $v' >/dev/null \
+            || fail "/healthz did not report version $VERSION."
+          echo "OK   /healthz reports $VERSION"
+
+          # 3. First run asks for setup: no default login exists.
+          api /api/v1/auth/status | jq -e '.setup_required == true and .authenticated == false' >/dev/null \
+            || fail "/api/v1/auth/status did not report setup_required on a fresh /config."
+          echo "OK   fresh install requires the setup wizard"
+
+          # 4. The built web UI is served, including its JavaScript bundle.
+          index="$(api /)" || fail "GET / failed."
+          grep -q '<div id="root">' <<<"$index" || fail "GET / did not return the web UI."
+          script="$(grep -oE 'src="/assets/[^"]+\.js"' <<<"$index" | head -n1 | cut -d'"' -f2)"
+          [ -n "$script" ] || fail "index.html references no /assets/*.js bundle."
+          api "$script" >/dev/null || fail "Web UI bundle $script is not served."
+          echo "OK   web UI and $script served"
+
+          # 5. Real CPU test encodes pass (same check users run with --detect).
+          docker exec -u frameforge ff-smoke python -m frameforge_node --detect | tee detect.txt \
+            || fail "frameforge_node --detect exited with an error."
+          for enc in libx264 libx265 libsvtav1; do
+            grep -qE "^ +OK +[a-z]+ +[a-z0-9]+ +$enc( |$)" detect.txt || fail "CPU encoder $enc did not pass its test encode."
+          done
+          echo "OK   libx264, libx265 and libsvtav1 verified"
+
+      - name: Remove smoke container
+        if: always()
+        run: docker rm -f ff-smoke >/dev/null 2>&1 || true
+
+      - name: Save tested image
+        if: steps.info.outputs.publish == 'true'
+        run: docker save frameforge:ci-smoke -o "$RUNNER_TEMP/frameforge-image.tar"
+
+      - name: Hand tested image to the publish job
+        if: steps.info.outputs.publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: frameforge-image
+          path: ${{ runner.temp }}/frameforge-image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GHCR
+    needs: [test, smoke]
+    if: needs.smoke.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download tested image
+        uses: actions/download-artifact@v8
+        with:
+          name: frameforge-image
+          path: ${{ runner.temp }}
+
+      - name: Load tested image
+        run: docker load -i "$RUNNER_TEMP/frameforge-image.tar"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse to overwrite a published version
+        if: needs.smoke.outputs.release == 'true'
+        env:
+          VERSION: ${{ needs.smoke.outputs.version }}
+        run: |
+          if docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION already exists. Published versions are never replaced: release a new version instead."
+            exit 1
+          fi
+
+      - name: Push tags
+        env:
+          TAGS: ${{ needs.smoke.outputs.tags }}
+        run: |
+          [ -n "${TAGS//[[:space:]]/}" ] || { echo "::error::No tags to publish."; exit 1; }
+          echo "### Published to GHCR" >> "$GITHUB_STEP_SUMMARY"
+          # metadata-action lists the full version tag first, so a failed run never leaves latest ahead of it.
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            case "$tag" in "$IMAGE":*) ;; *) echo "::error::Unexpected tag $tag"; exit 1 ;; esac
+            docker tag frameforge:ci-smoke "$tag"
+            docker push "$tag"
+            echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
+          done <<<"$TAGS"
