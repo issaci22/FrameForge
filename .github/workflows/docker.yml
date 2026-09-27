@@ -1,6 +1,6 @@
 # Build, test and publish the FrameForge image to ghcr.io/issaci22/frameforge.
 #
-#   pull request  -> test + build + smoke test, nothing is pushed
+#   pull request  -> test + build + smoke test, nothing is pushed (pr-<number> is a local metadata tag only)
 #   push to main  -> same, then push :main and :sha-<short>
 #   tag vX.Y.Z    -> same, then push :X.Y.Z, :X.Y, :X (from 1.0 on) and :latest
 #   tag vX.Y.Z-rc.N (pre-release) -> push :X.Y.Z-rc.N only
@@ -131,6 +131,8 @@ jobs:
             type=raw,value=latest,enable=${{ steps.info.outputs.stable == 'true' }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            # PR runs get pr-<number> as image metadata only. It is never pushed (see Push tags).
+            type=ref,event=pr
 
       - uses: docker/setup-buildx-action@v4
 
@@ -256,7 +258,11 @@ jobs:
           # metadata-action lists the full version tag first, so a failed run never leaves latest ahead of it.
           while IFS= read -r tag; do
             [ -n "$tag" ] || continue
-            case "$tag" in "$IMAGE":*) ;; *) echo "::error::Unexpected tag $tag"; exit 1 ;; esac
+            case "$tag" in
+              "$IMAGE":pr-*) echo "::error::Refusing to push pull-request tag $tag"; exit 1 ;;
+              "$IMAGE":*) ;;
+              *) echo "::error::Unexpected tag $tag"; exit 1 ;;
+            esac
             docker tag frameforge:ci-smoke "$tag"
             docker push "$tag"
             echo "- \`$tag\`" >> "$GITHUB_STEP_SUMMARY"
