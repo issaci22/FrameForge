@@ -19,21 +19,73 @@ FrameForge is an independent project. It is not affiliated with Tdarr or based o
 
 ## Quick start
 
-You need Docker with Compose. On Linux, Docker Engine is recommended. Docker Desktop works for CPU and NVIDIA.
+The normal install is **one container on one machine**: the web UI, the server and a built-in transcoding node.
+It encodes on the CPU out of the box; a GPU is an optional add-on ([below](#gpu-acceleration)). You need Docker
+with Compose. On Linux, Docker Engine is recommended. Docker Desktop works for CPU and NVIDIA.
+
+This is the included `docker-compose.yml`, without its comments and optional settings:
+
+```yaml
+services:
+  frameforge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: frameforge:latest
+    container_name: frameforge
+    restart: unless-stopped
+    ports:
+      - "8686:8686"
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Etc/UTC}
+    volumes:
+      - ./config:/config                  # database, logs, node state
+      - ${MEDIA_PATH:-./media}:/media     # your recordings (read-write)
+    stop_grace_period: 60s                # lets running jobs finish moving files
+```
+
+**1. Get FrameForge.** There's no prebuilt image yet, so Compose builds it from the repository.
 
 ```bash
-git clone <this repo> frameforge && cd frameforge
-cp .env.example .env        # set MEDIA_PATH, PUID/PGID and TZ
+git clone https://github.com/issaci22/FrameForge.git
+cd FrameForge
+```
+
+**2. Tell it where your recordings are.** Copy `.env.example` to `.env` and set:
+
+```bash
+MEDIA_PATH=/mnt/storage/recordings   # host folder; FrameForge sees it as /media
+PUID=1000                            # user/group that owns your recordings (`id` on Linux)
+PGID=1000
+TZ=Europe/London                     # used for schedules and quiet hours
+```
+
+**3. Start it.** The first build takes a few minutes.
+
+```bash
 docker compose up -d --build
 ```
 
-Open `http://<server>:8686`. The setup wizard creates your admin account. Then:
+**4. Open `http://<your-server>:8686`** and follow the setup wizard. There's no default login: the wizard creates
+your admin account, then walks through storage, transcoding, rules, nodes and schedule. Nothing besides the account
+is saved until you confirm on the last step. The [first-time setup guide](docs/setup-guide.md) explains each step.
 
-1. **Libraries:** add the folder that holds your recordings. Paths are *inside the container*, for example `/media/vods`.
-2. **Rules:** set an aging policy, or build rules visually. The live preview shows which files would be affected before anything runs.
-3. **Queue:** watch jobs run. Each job shows its encoder, native quality value (e.g. "CRF 24"), progress, validation results and what happened to the original.
+To update later, run `git pull` and the same `docker compose up -d --build`.
 
-GPU acceleration is one overlay file away. See [docs/gpu.md](docs/gpu.md):
+After setup, day-to-day work happens in three places:
+
+- **Libraries:** the folders FrameForge watches. Paths are *inside the container*, for example `/media/vods`.
+- **Rules:** an aging policy, or rules built visually. The live preview shows which files would be affected before anything runs.
+- **Queue:** every job with its encoder, native quality value (e.g. "CRF 24"), progress, validation results and what happened to the original.
+
+Volumes, permissions, backups and PostgreSQL are covered in [docs/installation.md](docs/installation.md).
+
+## GPU acceleration
+
+GPU encoding is one overlay file away. Add it to your compose command, then check what actually works on your
+hardware. See [docs/gpu.md](docs/gpu.md) for host requirements and multiple GPUs:
 
 ```bash
 docker compose -f docker-compose.yml -f docker/compose/gpu-intel-amd.yml up -d   # Intel QSV / VA-API, AMD VA-API

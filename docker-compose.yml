@@ -4,7 +4,8 @@
 #
 # Edit the media volume below so FrameForge can see your recordings. Paths you
 # add as libraries in the web UI are paths INSIDE the container (e.g. /media/vods).
-# GPU acceleration: uncomment ONE of the blocks at the bottom (see docs/gpu.md).
+# GPU acceleration: add the overlay for your hardware from docker/compose/ (see docs/gpu.md), e.g.
+#   docker compose -f docker-compose.yml -f docker/compose/gpu-nvidia.yml up -d
 
 services:
   frameforge:
@@ -26,16 +27,3 @@ services:
       - ${MEDIA_PATH:-./media}:/media          # your recordings (read-write: FrameForge writes outputs here)
     # Give running jobs time to finish moving files safely on shutdown.
     stop_grace_period: 60s
-
-    # --- NVIDIA (NVENC/NVDEC) — needs the NVIDIA Container Toolkit on the host ---
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu, video, compute, utility]
-
-    # --- Intel Quick Sync / VA-API, or AMD VA-API ---
-    # devices:
-    #   - /dev/dri:/dev/dri

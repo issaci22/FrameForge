@@ -19,8 +19,9 @@ FrameForge ships as one Docker image. `FF_ROLE` picks what a container does:
 ## Install
 
 ```bash
-git clone <this repo> frameforge && cd frameforge
-cp .env.example .env
+git clone https://github.com/issaci22/FrameForge.git
+cd FrameForge
+cp .env.example .env        # then set MEDIA_PATH, PUID/PGID and TZ (see below)
 docker compose up -d --build
 ```
 
