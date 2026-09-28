@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
+from frameforge_shared import __version__
+
 Hardware = Literal["cpu", "nvidia", "intel", "amd"]
+
+IMAGE_REPOSITORY = "ghcr.io/issaci22/frameforge"
+# Nodes run the same release as this server, so their protocol versions match.
+NODE_IMAGE = f"{IMAGE_REPOSITORY}:{__version__}"
 
 _GPU_BLOCKS: dict[str, str] = {
     "cpu": "",
@@ -40,7 +46,7 @@ def compose_snippet(server_url: str, token: str, hardware: Hardware, media_paths
     volumes = "".join(f"      - {p}:{p}  # same path as on the server (or add a path mapping)\n" for p in media_paths) or "      - /path/to/media:/media\n"
     return f"""services:
   frameforge-node:
-    image: frameforge:latest  # build it from the FrameForge repo on this machine (docs/nodes.md)
+    image: {NODE_IMAGE}  # same version as the server; update both together
     container_name: frameforge-node
     restart: unless-stopped
     environment:
@@ -62,5 +68,5 @@ def docker_run_snippet(server_url: str, token: str, hardware: Hardware, media_pa
         f"  -e FF_ROLE=node -e FF_SERVER_URL={server_url} \\\n"
         f"  -e FF_NODE_TOKEN={token} -e PUID=1000 -e PGID=1000 \\\n"
         f"  -v $PWD/frameforge-node:/config{vols}{_RUN_FLAGS[hardware]} \\\n"
-        "  frameforge:latest"
+        f"  {NODE_IMAGE}"
     )
