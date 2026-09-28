@@ -2,10 +2,11 @@
 # Generate small synthetic recordings for trying FrameForge end to end.
 # Some files are backdated so age-based rules have something to match.
 #
-# Run it inside the FrameForge container (it has ffmpeg):
-#   docker compose exec frameforge sh /scripts/make-test-media.sh /media/test-vods
-# or with a throwaway container:
-#   docker run --rm --entrypoint sh -v "$PWD/media:/media" -v "$PWD/scripts:/scripts" frameforge:latest /scripts/make-test-media.sh /media/test-vods
+# It needs FFmpeg, so run it in the local development image (frameforge:dev), from the repository root.
+# Inside the running dev container (writes to ./dev-media):
+#   docker compose -f docker-compose.dev.yml exec -T -u frameforge dev sh -s /media/test-vods < scripts/make-test-media.sh
+# or with a throwaway container (build the image first: docker compose -f docker-compose.dev.yml build dev):
+#   docker run --rm --user 1000:1000 --entrypoint sh -v "$PWD/dev-media:/media" -v "$PWD/scripts:/scripts:ro" frameforge:dev /scripts/make-test-media.sh /media/test-vods
 set -eu
 
 OUT="${1:-/media/test-vods}"

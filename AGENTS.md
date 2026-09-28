@@ -135,6 +135,7 @@ Package layout:
 ## 9. Docker rules
 
 - `docker compose up -d` must work with the default compose file and no extra config.
+- Production pulls `ghcr.io/issaci22/frameforge` (published by `.github/workflows/docker.yml`); development builds locally (`docker-compose.dev.yml`, or `docker/compose/build-local.yml` for a production-style build).
 - Keep env vars minimal (`FF_ROLE`, `FF_PORT`, `PUID`, `PGID`, `TZ`, `FF_SERVER_URL`, `FF_NODE_TOKEN`).
   Everything else is configured in the UI.
 - Container runs as `PUID:PGID` (entrypoint drops privileges and joins `/dev/dri` groups).

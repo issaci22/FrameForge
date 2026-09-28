@@ -12,20 +12,44 @@ FrameForge ships as one Docker image. `FF_ROLE` picks what a container does:
 
 - Docker with Compose v2. On Linux, Docker Engine is recommended. Docker Desktop (Windows/macOS) works for
   CPU and NVIDIA, but **cannot** pass Intel/AMD GPUs through.
-- The web UI is built inside the image, so no Node.js or Python is needed on the host.
+- Nothing is built on the host. FrameForge runs from the published image `ghcr.io/issaci22/frameforge`
+  (linux/amd64), so no Node.js, Python or source checkout is needed.
 - Disk: transcodes are written next to their final location while they run, so keep free space of roughly
   one output file per running job on each media volume.
 
 ## Install
 
 ```bash
-git clone https://github.com/issaci22/FrameForge.git
-cd FrameForge
-cp .env.example .env        # then set MEDIA_PATH, PUID/PGID and TZ (see below)
-docker compose up -d --build
+mkdir frameforge && cd frameforge
+curl -fsSLO https://raw.githubusercontent.com/issaci22/FrameForge/main/docker-compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/issaci22/FrameForge/main/.env.example
+# edit .env: set MEDIA_PATH, PUID/PGID and TZ (see below)
+docker compose up -d
 ```
 
 Open `http://<host>:8686`. The first visit shows the setup wizard, which creates the admin account.
+
+On Windows, run these in Git Bash or WSL, or use `curl.exe` in PowerShell.
+
+### Image tags
+
+The compose file uses `ghcr.io/issaci22/frameforge:latest`. These tags are published:
+
+| Tag | Meaning |
+|---|---|
+| `latest` | The newest stable release. Moves with every release. |
+| `0.1.0` (`X.Y.Z`) | Exactly one release. Never changes once published. |
+| `0.1` (`X.Y`) | The newest patch release of 0.1. |
+| `main` | A development build of the newest commit. It can break. Don't use it for your library. |
+
+To stay on one release, pin its tag in `docker-compose.yml`:
+
+```yaml
+    image: ghcr.io/issaci22/frameforge:0.1.0
+```
+
+Remote nodes must run the **same version** as the server. **Settings → About this server** shows it, and the
+snippet from **Nodes → Add node** already uses the matching tag.
 
 ### `.env`
 
@@ -66,16 +90,35 @@ often `localhost`, which doesn't work from another machine. The Add Node wizard 
 ## Updating
 
 ```bash
-git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-Database migrations run automatically at startup. Update remote nodes at the same time: the server rejects nodes
-that speak a different protocol version and shows a clear message.
+With a pinned tag, change the tag in `docker-compose.yml` first. If you use a GPU overlay, pass it to both
+commands (for example `docker compose -f docker-compose.yml -f docker/compose/gpu-nvidia.yml pull`).
+
+Database migrations run automatically at startup. Update remote nodes to the same version at the same time: the
+server rejects nodes that speak a different protocol version and shows a clear message.
+
+**Upgrading from an install built from a git checkout:** run `git pull`, then the two commands above from the
+checkout. Compose recreates the container from the published image. `/config` is kept, and migrations run as usual.
+You can then delete the old local image with `docker image rm frameforge:latest`.
 
 Stopping the container gives running jobs 60 seconds (`stop_grace_period`) to finish moving files. A job
 cut off mid-transcode is simply requeued. A job cut off while replacing a file is completed or rolled back when
 its node comes back (see [architecture.md](architecture.md#file-safety)).
+
+## Building from source
+
+To run a production container built from your own checkout (for example to test a change), clone the repository
+and add the build overlay to every command:
+
+```bash
+docker compose -f docker-compose.yml -f docker/compose/build-local.yml up -d --build
+```
+
+It builds `frameforge:local` and never pulls. GPU overlays stack after it. For development with live reload, use
+`docker-compose.dev.yml` ([architecture.md](architecture.md#development)).
 
 ## Backups
 

@@ -172,6 +172,12 @@ docker compose -f docker-compose.dev.yml up --build dev web   # API :8686, Vite 
 docker compose -f docker-compose.dev.yml run --rm dev pytest -q
 ```
 
+Development always builds locally: `docker-compose.dev.yml` builds `frameforge:dev`, and
+`docker/compose/build-local.yml` builds the production image as `frameforge:local`. The published image
+`ghcr.io/issaci22/frameforge` is built by `.github/workflows/docker.yml`. Every pull request is tested and smoke-tested
+without publishing. `main` publishes `:main` and `:sha-<commit>`, and a `vX.Y.Z` tag publishes `:X.Y.Z`, `:X.Y` and
+`:latest`. The tag must match `__version__` in `frameforge_shared` and the version in `web/package.json`.
+
 Python source is bind-mounted, so restart `dev` after backend changes. Rebuild the image only when the web UI or
 dependencies change. `scripts/make-test-media.sh` generates sample recordings.
 

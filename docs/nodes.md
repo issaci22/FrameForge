@@ -24,10 +24,12 @@ stores only a hash of each token. The plaintext is shown once, when you create t
    `localhost`, `127.0.0.1`, `::1` or `0.0.0.0`. Fix the setting and regenerate the token on the node's page, or
    edit `FF_SERVER_URL` in the snippet.
 2. **Nodes → Add node:** choose a name and hardware type. Copy the token and the generated compose or `docker run` snippet.
-3. On the node machine, get the same FrameForge version and build the image:
-   `git clone … && docker compose -f docker/compose/node.yml build`.
-4. Mount the media (next section), paste the token, and start it:
-   `docker compose -f docker/compose/node.yml up -d`.
+3. On the node machine, save the snippet as `docker-compose.yml`. It already uses the server's exact version
+   (for example `ghcr.io/issaci22/frameforge:0.1.0`). Nothing needs to be built. To start from
+   [`docker/compose/node.yml`](../docker/compose/node.yml) instead, set its image to the tag the server runs
+   (**Settings → About this server** shows the version).
+4. Mount the media (next section), check the token, and start it: `docker compose up -d`
+   (or `docker compose -f docker/compose/node.yml up -d`).
 
 The node appears as **online** within seconds, with its verified encoders listed. If it doesn't, check
 `docker logs frameforge-node`. An invalid token is rejected with *Invalid node token*. A version mismatch is
