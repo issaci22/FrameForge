@@ -1,14 +1,3 @@
-# FrameForge: server + built-in transcoding node in one container.
-#
-#   docker compose up -d                            then open http://<this-machine>:8686
-#   docker compose pull && docker compose up -d     update to the newest release
-#
-# Edit the media volume below so FrameForge can see your recordings. Paths you
-# add as libraries in the web UI are paths INSIDE the container (e.g. /media/vods).
-# GPU acceleration: uncomment ONE of the GPU blocks at the bottom of this file. Without one, FrameForge
-# encodes on the CPU. For pinned or multiple GPUs, use the overlays in docker/compose/ instead (docs/gpu.md).
-# To build the image from source instead of pulling it, add docker/compose/build-local.yml.
-
 services:
   frameforge:
     image: ghcr.io/issaci22/frameforge:latest   # newest release; pin one with e.g. :0.1.0 (docs/installation.md)
@@ -24,23 +13,14 @@ services:
     volumes:
       - ./config:/config                       # database, logs, node state
       - ${MEDIA_PATH:-./media}:/media          # your recordings (read-write: FrameForge writes outputs here)
-    # Give running jobs time to finish moving files safely on shutdown.
-    stop_grace_period: 60s
-
-    # --- Optional GPU acceleration: uncomment ONE block. Leave both commented to encode on the CPU. ---
-    #
-    # Intel Quick Sync / VA-API or AMD VA-API (Linux only). First check that `ls /dev/dri` on the host
-    # lists renderD* devices: if /dev/dri is missing, the container won't start.
-    # Windows/macOS: never uncomment this. Docker Desktop has no /dev/dri.
-    # devices:
-    #   - /dev/dri:/dev/dri
-    #
-    # NVIDIA NVENC / NVDEC (Linux, or Windows with Docker Desktop + WSL2). Linux hosts need the
-    # NVIDIA Container Toolkit; on Windows the NVIDIA driver is enough.
-    # deploy:
+    devices:              #Intel Quick Sync / VA-API or AMD VA-API
+      - /dev/dri:/dev/dri
+    # deploy:             #NVIDIA Container Toolkit
     #   resources:
     #     reservations:
     #       devices:
     #         - driver: nvidia
     #           count: all
-    #           capabilities: [gpu, video, compute, utility]
+    #           capabilities: [gpu]
+    # Give running jobs time to finish moving files safely on shutdown.
+    stop_grace_period: 60s
