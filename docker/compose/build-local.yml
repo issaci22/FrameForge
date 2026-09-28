@@ -1,0 +1,20 @@
+# Build the production image from this repository instead of pulling it from GHCR.
+#
+#   docker compose -f docker-compose.yml -f docker/compose/build-local.yml up -d --build
+#
+# Use it to run a production-style container from your own checkout, e.g. to test a Dockerfile or code change.
+# For day-to-day development use docker-compose.dev.yml instead (source mounted, UI hot reload).
+#
+# * Run it from the repository root. Paths resolve from the directory of docker-compose.yml.
+# * GPU overlays stack as usual. Keep docker-compose.yml first:
+#     docker compose -f docker-compose.yml -f docker/compose/build-local.yml -f docker/compose/gpu-nvidia.yml up -d --build
+# * The image is tagged frameforge:local and is never pulled. Pass this file on every command (up, down, logs, ...).
+#   Without it, Compose goes back to the published ghcr.io/issaci22/frameforge image.
+
+services:
+  frameforge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: frameforge:local
+    pull_policy: build

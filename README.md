@@ -23,15 +23,21 @@ The normal install is **one container on one machine**: the web UI, the server a
 It encodes on the CPU out of the box; a GPU is an optional add-on ([below](#gpu-acceleration)). You need Docker
 with Compose. On Linux, Docker Engine is recommended. Docker Desktop works for CPU and NVIDIA.
 
-This is the included `docker-compose.yml`, without its comments and optional settings:
+FrameForge runs from a published image, `ghcr.io/issaci22/frameforge`. You don't need to clone or build anything.
+
+**1. Download the compose file** into a new folder:
+
+```bash
+mkdir frameforge && cd frameforge
+curl -fsSLO https://raw.githubusercontent.com/issaci22/FrameForge/main/docker-compose.yml
+```
+
+Without its comments and optional settings, it looks like this:
 
 ```yaml
 services:
   frameforge:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: frameforge:latest
+    image: ghcr.io/issaci22/frameforge:latest
     container_name: frameforge
     restart: unless-stopped
     ports:
@@ -46,33 +52,35 @@ services:
     stop_grace_period: 60s                # lets running jobs finish moving files
 ```
 
-**1. Get FrameForge.** There's no prebuilt image yet, so Compose builds it from the repository.
+**2. Tell it where your recordings are.** Create a `.env` file next to it, with your own values:
 
 ```bash
-git clone https://github.com/issaci22/FrameForge.git
-cd FrameForge
-```
-
-**2. Tell it where your recordings are.** Copy `.env.example` to `.env` and set:
-
-```bash
-MEDIA_PATH=/mnt/storage/recordings   # host folder; FrameForge sees it as /media
-PUID=1000                            # user/group that owns your recordings (`id` on Linux)
+cat > .env <<'EOF'
+# Host folder with your recordings; FrameForge sees it as /media
+MEDIA_PATH=/mnt/storage/recordings
+# User/group that owns your recordings (run `id` on Linux)
+PUID=1000
 PGID=1000
-TZ=Europe/London                     # used for schedules and quiet hours
+# Time zone for schedules and quiet hours
+TZ=Europe/London
+EOF
 ```
 
-**3. Start it.** The first build takes a few minutes.
+**3. Start it.** The first start downloads the image.
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 **4. Open `http://<your-server>:8686`** and follow the setup wizard. There's no default login: the wizard creates
 your admin account, then walks through storage, transcoding, rules, nodes and schedule. Nothing besides the account
 is saved until you confirm on the last step. The [first-time setup guide](docs/setup-guide.md) explains each step.
 
-To update later, run `git pull` and the same `docker compose up -d --build`.
+**Updating:** `docker compose pull && docker compose up -d`. To stay on one release instead of `latest`, pin its
+tag (for example `ghcr.io/issaci22/frameforge:0.1.0`); see [docs/installation.md](docs/installation.md#image-tags).
+
+On Windows, run these commands in Git Bash or WSL. In PowerShell, use `curl.exe` instead of `curl`, and create
+`.env` in a text editor.
 
 After setup, day-to-day work happens in three places:
 
@@ -84,8 +92,17 @@ Volumes, permissions, backups and PostgreSQL are covered in [docs/installation.m
 
 ## GPU acceleration
 
-GPU encoding is one overlay file away. Add it to your compose command, then check what actually works on your
-hardware. See [docs/gpu.md](docs/gpu.md) for host requirements and multiple GPUs:
+GPU encoding is one overlay file away. Download the overlay for your hardware into `docker/compose/`, next to your
+`docker-compose.yml` (the same path as in the repository):
+
+```bash
+curl -fsSL --create-dirs -o docker/compose/gpu-nvidia.yml \
+  https://raw.githubusercontent.com/issaci22/FrameForge/main/docker/compose/gpu-nvidia.yml
+```
+
+Use `gpu-intel-amd.yml` or `gpu-windows-nvidia.yml` in place of `gpu-nvidia.yml` for other hardware. Add the overlay
+to your compose command, then check what actually works on your hardware. See [docs/gpu.md](docs/gpu.md) for host
+requirements and multiple GPUs:
 
 ```bash
 docker compose -f docker-compose.yml -f docker/compose/gpu-intel-amd.yml up -d   # Intel QSV / VA-API, AMD VA-API
@@ -119,6 +136,8 @@ Not built yet: file transfer to nodes without shared storage, the HandBrake engi
 
 ## Development
 
+Development builds the image from your checkout instead of pulling it. `docker-compose.dev.yml` builds
+`frameforge:dev` with the source mounted, and `docker/compose/build-local.yml` builds the production image locally.
 See [docs/architecture.md](docs/architecture.md#development). Tests:
 
 ```bash

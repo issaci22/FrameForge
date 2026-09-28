@@ -560,10 +560,11 @@ Hardware decoders:
 1. Set **Settings → General → Server URL for nodes** ([§1.6](#16-general-settings-to-set-now)).
 2. **Nodes → Add node:** name, hardware type (CPU / NVIDIA / Intel / AMD), jobs at the same time, optional path
    mappings. Copy the token (**shown once**) and the generated compose or `docker run` snippet.
-3. On the node machine, check out the **same FrameForge version** and build the image. The server rejects nodes with a
+3. On the node machine, save the snippet as `docker-compose.yml`. It already uses the **same FrameForge version** as
+   the server (`ghcr.io/issaci22/frameforge:<version>`), so nothing needs to be built. The server rejects nodes with a
    different protocol version: *Protocol mismatch … Update the node image*.
 4. Mount the **same media** read-write, with a `PUID`/`PGID` that can write there, then start the node:
-   `docker compose -f docker/compose/node.yml up -d`.
+   `docker compose up -d` (or `docker compose -f docker/compose/node.yml up -d` if you use that file).
 5. The node shows as **Online** within seconds, with its verified encoders. If it doesn't, run `docker logs frameforge-node`.
 
 Nodes connect **outbound** to the server over a WebSocket, so the node machine needs no open ports.

@@ -6,19 +6,19 @@
 # 3. Mount the SAME media the server sees. If the path differs on this machine, add a path
 #    mapping for the node in the UI (server path → node path). Example: the server sees
 #    /media/vods and this node mounts it at /mnt/vods.
-# 4. Build the image here too (same repo, same version as the server), then:
+# 4. Use the SAME FrameForge version as the server (Settings → About this server). If the server is
+#    pinned to a release, pin the image below to the same tag. Then:
 #
-#      docker compose -f docker/compose/node.yml up -d --build
+#      docker compose -f docker/compose/node.yml up -d
 #
+# The snippet from Add node is an alternative to this file: it already pins the server's version.
 # The node opens an outbound WebSocket to the server; no ports need to be opened on the node.
-# Protocol versions must match: update server and nodes together.
+# Protocol versions must match: update server and nodes together
+# (docker compose -f docker/compose/node.yml pull && docker compose -f docker/compose/node.yml up -d).
 
 services:
   frameforge-node:
-    build:
-      context: ../..
-      dockerfile: docker/Dockerfile
-    image: frameforge:latest
+    image: ghcr.io/issaci22/frameforge:latest   # same tag as the server, e.g. :0.1.0
     container_name: frameforge-node
     restart: unless-stopped
     environment:

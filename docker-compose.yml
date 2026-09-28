@@ -1,18 +1,17 @@
 # FrameForge: server + built-in transcoding node in one container.
 #
-#   docker compose up -d          then open http://<this-machine>:8686
+#   docker compose up -d                            then open http://<this-machine>:8686
+#   docker compose pull && docker compose up -d     update to the newest release
 #
 # Edit the media volume below so FrameForge can see your recordings. Paths you
 # add as libraries in the web UI are paths INSIDE the container (e.g. /media/vods).
 # GPU acceleration: add the overlay for your hardware from docker/compose/ (see docs/gpu.md), e.g.
 #   docker compose -f docker-compose.yml -f docker/compose/gpu-nvidia.yml up -d
+# To build the image from source instead of pulling it, add docker/compose/build-local.yml.
 
 services:
   frameforge:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: frameforge:latest
+    image: ghcr.io/issaci22/frameforge:latest   # newest release; pin one with e.g. :0.1.0 (docs/installation.md)
     container_name: frameforge
     restart: unless-stopped
     ports:
