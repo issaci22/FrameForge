@@ -32,24 +32,55 @@ mkdir frameforge && cd frameforge
 curl -fsSLO https://raw.githubusercontent.com/issaci22/FrameForge/main/docker-compose.yml
 ```
 
-Without its comments and optional settings, it looks like this:
+The file looks like this (GPU acceleration is optional; see [below](#gpu-acceleration)):
 
 ```yaml
+# FrameForge: server + built-in transcoding node in one container.
+#
+#   docker compose up -d                            then open http://<this-machine>:8686
+#   docker compose pull && docker compose up -d     update to the newest release
+#
+# Edit the media volume below so FrameForge can see your recordings. Paths you
+# add as libraries in the web UI are paths INSIDE the container (e.g. /media/vods).
+# GPU acceleration: uncomment ONE of the GPU blocks at the bottom of this file. Without one, FrameForge
+# encodes on the CPU. For pinned or multiple GPUs, use the overlays in docker/compose/ instead (docs/gpu.md).
+# To build the image from source instead of pulling it, add docker/compose/build-local.yml.
+
 services:
   frameforge:
-    image: ghcr.io/issaci22/frameforge:latest
+    image: ghcr.io/issaci22/frameforge:latest   # newest release; pin one with e.g. :0.1.0 (docs/installation.md)
     container_name: frameforge
     restart: unless-stopped
     ports:
       - "8686:8686"
     environment:
-      - PUID=${PUID:-1000}
+      - FF_ROLE=all            # all = server + built-in node, server = no local transcoding
+      - PUID=${PUID:-1000}     # user/group that owns your media on the host (`id` on Linux)
       - PGID=${PGID:-1000}
-      - TZ=${TZ:-Etc/UTC}
+      - TZ=${TZ:-Etc/UTC}      # used for schedules / quiet hours
     volumes:
-      - ./config:/config                  # database, logs, node state
-      - ${MEDIA_PATH:-./media}:/media     # your recordings (read-write)
-    stop_grace_period: 60s                # lets running jobs finish moving files
+      - ./config:/config                       # database, logs, node state
+      - ${MEDIA_PATH:-./media}:/media          # your recordings (read-write: FrameForge writes outputs here)
+    # Give running jobs time to finish moving files safely on shutdown.
+    stop_grace_period: 60s
+
+    # --- Optional GPU acceleration: uncomment ONE block. Leave both commented to encode on the CPU. ---
+    #
+    # Intel Quick Sync / VA-API or AMD VA-API (Linux only). First check that `ls /dev/dri` on the host
+    # lists renderD* devices: if /dev/dri is missing, the container won't start.
+    # Windows/macOS: never uncomment this. Docker Desktop has no /dev/dri.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    #
+    # NVIDIA NVENC / NVDEC (Linux, or Windows with Docker Desktop + WSL2). Linux hosts need the
+    # NVIDIA Container Toolkit; on Windows the NVIDIA driver is enough.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, video, compute, utility]
 ```
 
 **2. Tell it where your recordings are.** Create a `.env` file next to it, with your own values:
@@ -92,23 +123,40 @@ Volumes, permissions, backups and PostgreSQL are covered in [docs/installation.m
 
 ## GPU acceleration
 
-GPU encoding is one overlay file away. Download the overlay for your hardware into `docker/compose/`, next to your
-`docker-compose.yml` (the same path as in the repository):
+FrameForge encodes on the CPU unless you enable a GPU. To use one, uncomment **one** of the two GPU blocks at the
+bottom of `docker-compose.yml`, then run `docker compose up -d` again:
+
+- **Intel or AMD on Linux** (Quick Sync / VA-API): first check that `ls /dev/dri` on the host lists `renderD*`
+  devices, then uncomment the `devices:` block (`/dev/dri:/dev/dri`). If `/dev/dri` is missing, the container won't start.
+- **NVIDIA** (Linux, or Windows with Docker Desktop): uncomment the `deploy:` block. Linux hosts need the
+  NVIDIA Container Toolkit; on Windows the NVIDIA driver is enough.
+- **Windows and macOS:** never enable `/dev/dri`. Docker Desktop has no `/dev/dri`, so the container would fail to
+  start. On Windows, use the NVIDIA block. On a Mac, FrameForge encodes on the CPU.
+
+With neither block enabled, FrameForge uses the CPU. A GPU encoder is only used after it passes a real test encode,
+so check what actually works on your hardware:
+
+```bash
+docker compose exec frameforge python -m frameforge_node --detect
+```
+
+**Advanced: overlay files.** The overlays in `docker/compose/` add the same settings without editing
+`docker-compose.yml`, and cover pinning one GPU and the Windows setup with a pinned NVIDIA card. Download the one for
+your hardware into `docker/compose/`, next to your `docker-compose.yml` (the same path as in the repository):
 
 ```bash
 curl -fsSL --create-dirs -o docker/compose/gpu-nvidia.yml \
   https://raw.githubusercontent.com/issaci22/FrameForge/main/docker/compose/gpu-nvidia.yml
 ```
 
-Use `gpu-intel-amd.yml` or `gpu-windows-nvidia.yml` in place of `gpu-nvidia.yml` for other hardware. Add the overlay
-to your compose command, then check what actually works on your hardware. See [docs/gpu.md](docs/gpu.md) for host
-requirements and multiple GPUs:
+Use `gpu-intel-amd.yml` or `gpu-windows-nvidia.yml` in place of `gpu-nvidia.yml` for other hardware, and add it to
+your compose command. Don't combine an overlay with an uncommented GPU block for the same hardware. See
+[docs/gpu.md](docs/gpu.md) for host requirements and multiple GPUs:
 
 ```bash
 docker compose -f docker-compose.yml -f docker/compose/gpu-intel-amd.yml up -d   # Intel QSV / VA-API, AMD VA-API
 docker compose -f docker-compose.yml -f docker/compose/gpu-nvidia.yml up -d      # NVIDIA NVENC
 docker compose -f docker-compose.yml -f docker/compose/gpu-windows-nvidia.yml up -d   # NVIDIA on Windows (Docker Desktop)
-docker compose exec frameforge python -m frameforge_node --detect                 # what actually works
 ```
 
 ## Documentation
