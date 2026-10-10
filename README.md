@@ -52,13 +52,13 @@ services:
       - ${MEDIA_PATH:-./media}:/media          # your recordings (read-write: FrameForge writes outputs here)
     devices:              #Intel Quick Sync / VA-API or AMD VA-API
       - /dev/dri:/dev/dri
-    # deploy:             #NVIDIA Container Toolkit
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+#    deploy:             #NVIDIA Container Toolkit
+#     resources:
+#       reservations:
+#         devices:
+#           - driver: nvidia
+#             count: all
+#             capabilities: [gpu]
     # Give running jobs time to finish moving files safely on shutdown.
     stop_grace_period: 60s
 ```
