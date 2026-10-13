@@ -150,6 +150,7 @@ their originals should be treated:
 | Name | – | e.g. *YouTube VODs* |
 | Scan every | 60 minutes | Minimum 5. New files are only picked up on scans. |
 | Folders | – | Container paths. Sub-folders are included. **Add folder** adds more. |
+| Excluded folders | none | Sub-folders that are never scanned or converted, with everything inside them. Takes effect on save (see [libraries.md](libraries.md#excluded-folders)). Not part of the setup wizard: add them here afterwards. |
 | Where do converted files go? / What happens to the original? | Next to the original · keep it (backup folder) | See [§2.4](#24-file-policies) |
 | Keep originals for / While it's kept | – | Shown for the choices that use them |
 | Backup folder / Output folder | – | Shown for the choices that use one |
@@ -162,7 +163,7 @@ their originals should be treated:
 
 - **Scanned extensions:** `.mkv .mp4 .mov .m4v .flv .ts .m2ts .mts .avi .webm .wmv .mpg .mpeg .mxf`
 - **Always skipped:** hidden files and folders (including `.frameforge-tmp` and `.frameforge-originals`), the
-  library's own output and backup folders, and anything matching an exclude pattern.
+  library's own output and backup folders, excluded folders, and anything matching an exclude pattern.
 - If the Libraries page warns that a folder **isn't writable**, fix `PUID`/`PGID` or the mount before you turn automation on.
 
 ### 2.4 File policies
@@ -470,8 +471,14 @@ When a rule matches, FrameForge still **skips** the file if any of these hold:
 | Already processed with this profile | **Any of:** the database says `processed_profile_id` = the rule's profile · the file's `FRAMEFORGE` tag contains `profile=<id>;` · the file's fingerprint is in the processed-fingerprints table (both the original's and the output's fingerprints are recorded when a job completes) | *Already processed with "Balanced"* |
 | Already in the target codec | Same codec, and the profile wouldn't lower resolution or frame rate (per-rule option) | *Already H.265; nothing to gain* |
 | A previous attempt with this profile failed | Job history | *A previous … attempt failed; retry it from the job page* |
+| You cancelled the last job with this profile | Job history (cancels by you, including **Clear queue**) | *You cancelled the last … job; retry it from the Queue or queue it from Files* |
 
-Before any rule runs, files that are ignored, missing, not yet analyzed, unreadable, or already queued are also left alone.
+Before any rule runs, files that are ignored, missing, not yet analyzed, unreadable, in an excluded folder, or already
+queued are also left alone.
+
+The failed and cancelled guards last until you press **Retry** (or queue the file from Files), or until you clear
+those jobs from the Failed or Cancelled history. A job cancelled because its node shut down doesn't count: only
+cancels you asked for do.
 
 - The three identity checks cover different cases: the database record for normal operation, the tag that travels
   inside the file, and the fingerprint for moves, renames and copies.

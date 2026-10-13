@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { RotateCcw, Search, Square, Trash2 } from "lucide-react";
+import { ListX, RotateCcw, Search, Square, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import { useAction, useJobs } from "../api/hooks";
-import type { Job } from "../api/types";
+import type { ClearQueueResult, Job } from "../api/types";
 import { ACTIVE_STATES } from "../api/types";
 import { JobRow } from "../components/JobRow";
-import { ConfirmButton, Empty, ErrorState, Menu, PageHeader, Section, Spinner, Tabs, useToast } from "../components/ui";
-import { PRIORITIES } from "../lib/format";
+import { ConfirmButton, Empty, ErrorState, Menu, PageHeader, Section, Spinner, Tabs, Toggle, useToast } from "../components/ui";
+import { plural, PRIORITIES } from "../lib/format";
 
 type Group = "active" | "queued" | "completed" | "failed" | "cancelled";
 const PAGE = 50;
@@ -26,8 +26,12 @@ export function QueuePage() {
   const { data, error, refetch } = useJobs({ group, q: q || undefined, limit: PAGE, offset });
   const toast = useToast();
   const clear = useAction((states: string[]) => api.post<{ removed: number }>("/jobs/clear", { states }), [["jobs"], ["stats"]]);
+  // Lives here, not in the button: the button disappears as soon as the queue is empty, and the result still needs a toast.
+  const clearQueue = useAction((stop: boolean) => api.post<ClearQueueResult>("/jobs/clear-queue", { stop_running: stop }), [["jobs"], ["stats"], ["files"]]);
 
   const counts = data?.counts;
+  const queued = counts?.queued ?? 0;
+  const running = counts?.active ?? 0;
   const switchTo = (g: Group) => {
     setGroup(g);
     setOffset(0);
@@ -55,11 +59,23 @@ export function QueuePage() {
           <Search size={15} />
           <input className="input" placeholder="Filter by file name" aria-label="Filter by file name" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
+        {(group === "active" || group === "queued") && queued > 0 && (
+          <ClearQueueButton
+            queued={queued}
+            running={running}
+            pending={clearQueue.isPending}
+            onClear={(stop) => clearQueue.mutate(stop, { onSuccess: (r) => toast(clearedText(r)), onError: (e) => toast((e as Error).message, "err") })}
+          />
+        )}
         {(group === "completed" || group === "cancelled") && (
           <ConfirmButton
             className="btn"
             confirmText={`Remove all ${group} jobs from the history?`}
-            detail="Only the history entries are removed. Files are not touched."
+            detail={
+              group === "cancelled"
+                ? "Only the history entries are removed. Files are not touched. Files you cancelled can be queued again by later scans."
+                : "Only the history entries are removed. Files are not touched."
+            }
             confirmLabel="Remove"
             onConfirm={() =>
               clear.mutate([group], {
@@ -106,6 +122,40 @@ export function QueuePage() {
   );
 }
 
+function clearedText(r: ClearQueueResult): string {
+  const parts = [r.cancelled ? `Cancelled ${plural(r.cancelled, "pending job")}.` : "Nothing was waiting in the queue."];
+  if (r.stopping) parts.push(`Stopping ${plural(r.stopping, "running job")}…`);
+  if (r.stopping_offline) parts.push(`${plural(r.stopping_offline, "job")} on an offline node will stop when it reconnects.`);
+  if (r.still_running) parts.push(`${plural(r.still_running, "job is", "jobs are")} still running.`);
+  return parts.join(" ");
+}
+
+/** Cancel every pending job in one go; optionally ask nodes to stop the running ones too. */
+function ClearQueueButton({ queued, running, pending, onClear }: { queued: number; running: number; pending: boolean; onClear: (stopRunning: boolean) => void }) {
+  const [stopRunning, setStopRunning] = useState(false);
+  const stopping = stopRunning && running > 0;
+  return (
+    <ConfirmButton
+      className="btn danger"
+      disabled={pending}
+      confirmText={`Cancel all ${plural(queued, "pending job")}?`}
+      detail={
+        stopping
+          ? "They move to Cancelled and aren't queued again automatically; retry them any time. Stopped jobs delete their partial output and leave the original untouched. Jobs already moving files into place finish normally."
+          : `They move to Cancelled and aren't queued again automatically; retry them any time. Files aren't touched.${running ? " Running jobs keep running." : ""}`
+      }
+      extra={running > 0 ? <Toggle checked={stopRunning} onChange={setStopRunning} label={`Also stop ${plural(running, "running job")}`} /> : undefined}
+      confirmLabel={stopping ? "Clear and stop" : "Clear queue"}
+      onConfirm={() => {
+        onClear(stopping);
+        setStopRunning(false); // off by default every time
+      }}
+    >
+      <ListX size={14} /> Clear queue
+    </ConfirmButton>
+  );
+}
+
 export function JobActions({ job }: { job: Job }) {
   const toast = useToast();
   const cancel = useAction(() => api.post(`/jobs/${job.id}/cancel`), [["jobs"]]);
@@ -139,6 +189,13 @@ export function JobActions({ job }: { job: Job }) {
     );
   }
   if (ACTIVE_STATES.includes(job.state)) {
+    if (job.cancel_requested && job.state !== "finalizing") {
+      return (
+        <span className="faint small" title="Waiting for the node to confirm. The job moves to Cancelled once it has stopped.">
+          Stopping…
+        </span>
+      );
+    }
     return job.state === "finalizing" ? (
       <span className="faint small" title="Cancelling isn't possible while files are being moved">
         Finishing…

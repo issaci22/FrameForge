@@ -257,6 +257,11 @@ class NodeManager:
             jobs = (await db.execute(select(Job).where(Job.node_id == conn.node_id, Job.state.in_(ACTIVE_JOB_STATES)))).scalars().all()
             for job in jobs:
                 if job.id in conn.active_jobs:
+                    if job.cancel_requested_at is not None and job.state != "finalizing":
+                        # Stopped while the node was away: tell it now.
+                        await conn.send(P.SERVER_CANCEL, P.CancelJob(job_id=job.id))
+                        job.waiting_reason = "Stopping…"
+                        job_service.publish_job(job)
                     continue
                 if job.state == "finalizing" and job.finalize_plan:
                     await job_service.add_event(db, job.id, "recovery", "Node reconnected mid-finalize; asking it to verify and complete or roll back", level="warn")

@@ -172,6 +172,9 @@ function handle(qc: QueryClient, msg: EventMsg) {
     case "file.updated":
       scheduleInvalidate(qc, "files", "file");
       break;
+    case "queue.changed": // many jobs at once: Clear Queue, or excluded folders applied
+      scheduleInvalidate(qc, "jobs", "job", "stats", "files", "file", "libraries");
+      break;
     case "stats.changed":
       scheduleInvalidate(qc, "stats");
       break;

@@ -17,8 +17,31 @@ A library can have several folders. Files are matched by extension:
 - hidden files and folders (names starting with `.`), including FrameForge's own
   `.frameforge-tmp` (in-progress outputs) and `.frameforge-originals` (default backups)
 - the library's configured output and backup folders, if they sit inside the library
+- everything inside an **excluded folder** (see below)
 - anything matching an **exclude pattern**. Patterns are shell-style and are matched against both the path
   relative to the library folder and the bare file name, e.g. `replay-*`, `clips/*`, `*.part.mkv`.
+
+## Excluded folders
+
+**Libraries → Edit → Excluded folders** lists sub-folders FrameForge must never scan or convert, at any depth, with
+everything inside them. Type a path (absolute, or relative to the library folder when the library has only one) or
+pick one with the folder browser.
+
+- **Whole folders only, case ignored.** Excluding `/media/vods/Archive` also covers `archive` and `ARCHIVE`, but
+  never `Archive2` or `Archive.old`. Backslashes, doubled and trailing slashes are cleaned up.
+- **Must sit inside the library.** The library folder itself, folders outside it and paths that climb out with `..`
+  are refused. Duplicates are dropped.
+- **Applies when you save.** Queued jobs inside a newly excluded folder are cancelled, and their files show as
+  *excluded* on the Files page. Running jobs are **not** interrupted: they finish (stop them from the Queue if you
+  want). Nothing on disk is changed.
+- **Holds everywhere.** Scans never enter an excluded folder. Rules, **Convert now** on the Files page, **Retry**,
+  and the scheduler right before it starts a job all refuse files inside one.
+- **Symlinks:** folder symlinks are never followed by scans. A file symlink that points into an excluded folder is
+  skipped too.
+- **Removing an exclusion** marks its known files as analyzed again; the next scan picks up new ones and the rules
+  decide as usual. Jobs cancelled *because of* an exclusion don't block that.
+- **Limits:** a hard link, or the same folder mounted a second time at another path, can't be recognized from its
+  path. Exclude every path it appears under.
 
 ## Scanning
 

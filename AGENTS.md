@@ -232,6 +232,16 @@ Package layout:
   `media_files.role = "kept_original"`, and rules skip it (manual queueing still works).
 - **Compression previews run on nodes**, one at a time, and take a job slot while running (GPU session limits). Images
   travel to the server in chunks over the node socket and live in a disposable cache (`config/previews`).
+- **A queued job is claimed or cancelled with a conditional UPDATE** (`WHERE state = 'queued'`), in the scheduler and in
+  `services/queue.py`. Neither may overwrite the other: a job cancelled in the database must never be running on a node.
+- **A stop the user asked for is recorded** (`jobs.cancel_requested_at`). Such a job is never requeued (node lost, rejected,
+  transient failure all end it as cancelled), and rules don't queue its file and profile again until the user retries
+  it, like a failed attempt. Cancels from a node shutting down carry no request and are queued again by later scans.
+  Clear Queue only cancels pending jobs unless the user also asks to stop running ones; finalizing jobs are never stopped.
+- **Excluded folders** (`libraries.exclude_folders`, `services/exclusions.py`) are absolute paths strictly inside a
+  library folder, matched case-insensitively on whole path components. They are enforced at the walk (never entered),
+  the rule engine (`media_files.status = "excluded"`), manual queueing and retries, and by the scheduler before it
+  starts a job. Saving them cancels queued jobs inside them but never interrupts a running one.
 - **Built-in profiles are identified by `builtin_key`, never by name.** The first lineup (YouTube Archive, Storage
   Saver, Long-Term Archive) was upgraded in place once, and only where the user hadn't edited it.
 

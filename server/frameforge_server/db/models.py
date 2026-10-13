@@ -68,6 +68,8 @@ class Library(Base):
     automation_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     scan_interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
     exclude_patterns: Mapped[list[Any]] = mapped_column(default=list)
+    # Folders inside the library that are never scanned or converted (absolute, validated by services/exclusions.py).
+    exclude_folders: Mapped[list[Any]] = mapped_column(default=list)
     # Legacy single value (replace | backup | output_dir | alongside), derived from the fields below.
     # Kept so older clients and a downgrade still work; see services/storage_policy.py.
     output_policy: Mapped[str] = mapped_column(String(32), default="backup")
@@ -96,7 +98,7 @@ class MediaFile(Base):
     size: Mapped[int] = mapped_column(BigInteger)
     mtime: Mapped[datetime]
     fingerprint: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
-    # new | ready | queued | processing | processed | failed | error | missing
+    # new | ready | queued | processing | processed | failed | error | missing | excluded
     status: Mapped[str] = mapped_column(String(16), default="new")
     ignored: Mapped[bool] = mapped_column(Boolean, default=False)
     probe_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -278,6 +280,8 @@ class Job(Base):
     assigned_at: Mapped[datetime | None] = mapped_column(nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Set when the user asked to stop the job. Such a job is never requeued, and rules don't queue its file again.
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class RetainedOriginal(Base):

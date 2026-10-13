@@ -172,7 +172,23 @@ function floatStyle(pos: { top: number; left: number } | null) {
   return pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, opacity: 0, pointerEvents: "none" as const };
 }
 
-function ConfirmPanel({ text, detail, label, danger, onCancel, onConfirm }: { text: ReactNode; detail?: ReactNode; label: string; danger: boolean; onCancel: () => void; onConfirm: () => void }) {
+function ConfirmPanel({
+  text,
+  detail,
+  extra,
+  label,
+  danger,
+  onCancel,
+  onConfirm,
+}: {
+  text: ReactNode;
+  detail?: ReactNode;
+  extra?: ReactNode;
+  label: string;
+  danger: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   useEffect(() => confirmRef.current?.focus({ preventScroll: true }), []);
   return (
@@ -181,6 +197,7 @@ function ConfirmPanel({ text, detail, label, danger, onCancel, onConfirm }: { te
         <div className="q">{text}</div>
         {detail && <div className="d">{detail}</div>}
       </div>
+      {extra}
       <div className="actions">
         <button type="button" className="btn sm" onClick={onCancel}>
           Cancel
@@ -195,13 +212,14 @@ function ConfirmPanel({ text, detail, label, danger, onCancel, onConfirm }: { te
 
 /**
  * A button for consequential actions. The first click opens a small confirmation next to it; nothing happens
- * until that is confirmed.
+ * until that is confirmed. `extra` adds an option to the confirmation (e.g. a toggle), above its buttons.
  */
 export function ConfirmButton({
   onConfirm,
   children,
   confirmText = "Are you sure?",
   detail,
+  extra,
   confirmLabel,
   className = "btn danger sm",
   disabled,
@@ -211,6 +229,7 @@ export function ConfirmButton({
   children: ReactNode;
   confirmText?: ReactNode;
   detail?: ReactNode;
+  extra?: ReactNode;
   confirmLabel?: string;
   className?: string;
   disabled?: boolean;
@@ -251,6 +270,7 @@ export function ConfirmButton({
             <ConfirmPanel
               text={confirmText}
               detail={detail}
+              extra={extra}
               label={confirmLabel ?? (danger ? "Confirm" : "Continue")}
               danger={danger}
               onCancel={close}

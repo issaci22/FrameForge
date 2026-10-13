@@ -24,6 +24,8 @@ from ..db.models import ACTIVE_JOB_STATES, Job, Library, MediaFile, MediaMetadat
 from ..db.session import sessionmaker
 from ..db.types import utcnow
 from ..events import bus
+from . import queue as queue_service
+from .exclusions import EXCLUDED_DECISION, EXCLUDED_STATUS, matcher_for
 from .jobs import DEFAULT_BACKUP_DIR_NAME, TMP_DIR_NAME, active_job_for_file, create_job, publish_job
 from .rules.conditions import HardwareSnapshot
 from .rules.engine import build_context, decide
@@ -94,13 +96,19 @@ def _excluded_dirs(library: Library) -> list[str]:
 
 
 def walk_library(library: Library) -> tuple[list[FoundFile], list[str]]:
-    """Blocking directory walk. Returns (files, errors)."""
+    """Blocking directory walk. Returns (files, errors).
+
+    Excluded folders are never entered. A symlinked file is skipped when it points into one.
+    """
     found: list[FoundFile] = []
     errors: list[str] = []
     skip_dirs = _excluded_dirs(library)
     patterns = [p for p in (library.exclude_patterns or []) if p]
+    excluded = matcher_for(library)
     for root in library.paths or []:
         root = root.rstrip("/") or "/"
+        if excluded.match(root):
+            continue  # another of this library's folders excludes this one entirely
         if not os.path.isdir(root):
             errors.append(f"Folder not found or not mounted: {root}")
             continue
@@ -112,7 +120,10 @@ def walk_library(library: Library) -> tuple[list[FoundFile], list[str]]:
             dirnames[:] = [
                 d
                 for d in dirnames
-                if not d.startswith(".") and d not in (TMP_DIR_NAME, DEFAULT_BACKUP_DIR_NAME) and posixpath.join(dirpath, d) not in skip_dirs
+                if not d.startswith(".")
+                and d not in (TMP_DIR_NAME, DEFAULT_BACKUP_DIR_NAME)
+                and posixpath.join(dirpath, d) not in skip_dirs
+                and not excluded.match(posixpath.join(dirpath, d))
             ]
             for name in filenames:
                 if name.startswith("."):
@@ -123,6 +134,8 @@ def walk_library(library: Library) -> tuple[list[FoundFile], list[str]]:
                 full = posixpath.join(dirpath, name)
                 rel = posixpath.relpath(full, root)
                 if any(fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(name, p) for p in patterns):
+                    continue
+                if excluded and excluded.match_any(full):
                     continue
                 try:
                     st = os.stat(full)
@@ -168,6 +181,7 @@ async def _scan(library_id: int) -> dict[str, Any]:
         _publish_scan(library_id, phase="comparing", discovered=len(found), message=f"Found {len(found)} video files")
 
         existing = {f.path: f for f in (await db.execute(select(MediaFile).where(MediaFile.library_id == library_id))).scalars()}
+        excluded = matcher_for(library)
         now_ts = time.time()
         seen: set[str] = set()
         to_probe: list[tuple[MediaFile, FoundFile, bool]] = []
@@ -197,7 +211,7 @@ async def _scan(library_id: int) -> dict[str, Any]:
                 to_probe.append((row, ff, True))
             else:
                 row.last_seen_at = utcnow()
-                if row.status == "missing":
+                if row.status in ("missing", EXCLUDED_STATUS):  # back, or no longer excluded
                     row.status = "ready" if row.meta else "new"
                 if row.size != ff.size or abs(row.mtime.timestamp() - ff.mtime) > 1:
                     if row.status in ("queued", "processing"):
@@ -211,9 +225,16 @@ async def _scan(library_id: int) -> dict[str, Any]:
                 elif row.status == "new" and not row.meta:
                     to_probe.append((row, ff, False))
 
-        missing = 0
+        missing = newly_excluded = 0
         for path, row in existing.items():
-            if path not in seen and row.status not in ("missing", "queued", "processing"):
+            if path in seen or row.status in ("queued", "processing"):
+                continue  # never touch a file mid-job
+            if excluded and excluded.match_any(path):
+                if row.status != EXCLUDED_STATUS:
+                    row.status = EXCLUDED_STATUS
+                    row.decision = EXCLUDED_DECISION
+                    newly_excluded += 1
+            elif row.status != "missing":
                 row.status = "missing"
                 missing += 1
         await db.commit()
@@ -227,6 +248,7 @@ async def _scan(library_id: int) -> dict[str, Any]:
         "new": new_count,
         "changed": changed,
         "missing": missing,
+        "excluded": newly_excluded,
         "moved": moved,
         "still_recording": unstable,
         "analyzed": len(to_probe),
@@ -329,9 +351,18 @@ async def hardware_snapshot() -> HardwareSnapshot:
 
 async def evaluate_library(db: AsyncSession, library_id: int) -> int:
     """Run the rule engine over every file in the library and queue jobs. Returns jobs created."""
+    async with queue_service.queue_lock:
+        return await _evaluate_library(db, library_id)
+
+
+async def _evaluate_library(db: AsyncSession, library_id: int) -> int:
     library = await db.get(Library, library_id)
-    if library is None or not library.enabled:
+    if library is None:
         return 0
+    await db.refresh(library)  # a scan's session holds the copy from when it started; exclusions may have changed since
+    if not library.enabled:
+        return 0
+    excluded = matcher_for(library)
     rules = list((await db.execute(select(Rule).where((Rule.library_id == library_id) | (Rule.library_id.is_(None))))).scalars())
     hw = await hardware_snapshot()
     active_file_ids = set(
@@ -341,12 +372,24 @@ async def evaluate_library(db: AsyncSession, library_id: int) -> int:
     for file_id, profile_id in (await db.execute(select(Job.file_id, Job.profile_id).where(Job.library_id == library_id, Job.state == "failed"))).all():
         if file_id is not None and profile_id is not None:
             failed.setdefault(file_id, set()).add(profile_id)
+    # Jobs the user cancelled: rules leave those files alone until the user retries them.
+    held: dict[int, set[int]] = {}
+    held_q = select(Job.file_id, Job.profile_id).where(Job.library_id == library_id, Job.state == "cancelled", Job.cancel_requested_at.is_not(None))
+    for file_id, profile_id in (await db.execute(held_q)).all():
+        if file_id is not None and profile_id is not None:
+            held.setdefault(file_id, set()).add(profile_id)
 
     files = (await db.execute(select(MediaFile).where(MediaFile.library_id == library_id))).scalars().all()
     created = 0
     new_jobs = []
     for f in files:
-        decision = decide(f, rules, build_context(f, hw), has_active_job=f.id in active_file_ids, failed_profile_ids=failed.get(f.id))
+        if excluded.match(f.path):  # a scan marks these "excluded"; this also covers exclusions saved mid-scan
+            if f.status not in ("queued", "processing"):
+                f.decision = EXCLUDED_DECISION
+            continue
+        decision = decide(
+            f, rules, build_context(f, hw), has_active_job=f.id in active_file_ids, failed_profile_ids=failed.get(f.id), cancelled_profile_ids=held.get(f.id)
+        )
         if f.status not in ("queued", "processing"):
             f.decision = decision.reason[:255]
         if decision.action != "transcode" or not library.automation_enabled:

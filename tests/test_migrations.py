@@ -104,3 +104,38 @@ def test_storage_policy_split_backfills_from_output_policy(tmp_path: Path) -> No
         assert "retained_originals" not in sa.inspect(conn).get_table_names()
     assert policies["Replace"] == "replace" and policies["Folder"] == "output_dir"
     engine.dispose()
+
+
+def test_exclusions_and_cancel_intent_columns(tmp_path: Path) -> None:
+    db = tmp_path / "ff.db"
+    cfg = _config(db)
+    command.upgrade(cfg, "0003")
+    engine = sa.create_engine(f"sqlite:///{db.as_posix()}")
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO libraries (name, paths, enabled, automation_enabled, scan_interval_minutes, exclude_patterns,"
+                " output_policy, validation, created_at, last_scan_summary)"
+                " VALUES ('VODs', '[\"/media/vods\"]', 1, 1, 60, '[]', 'backup', '{}', '2026-09-18 00:00:00', '{}')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO jobs (source_path, profile_name, profile_spec, schedule, priority, manual, state, excluded_nodes, attempts,"
+                " finalize_plan, progress, diagnosis, validation, notes, created_at)"
+                " VALUES ('/media/vods/a.mkv', 'H.265', '{}', '{}', 2, 0, 'cancelled', '[]', 0, '{}', 0, '{}', '{}', '[]', '2026-09-18 00:00:00')"
+            )
+        )
+
+    command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        assert json.loads(conn.execute(sa.text("SELECT exclude_folders FROM libraries")).scalar_one()) == []
+        # Nobody can tell who cancelled an old job, so no hold is applied to it.
+        assert conn.execute(sa.text("SELECT cancel_requested_at FROM jobs")).scalar_one() is None
+
+    command.downgrade(cfg, "0003")
+    with engine.connect() as conn:
+        insp = sa.inspect(conn)
+        assert "exclude_folders" not in {c["name"] for c in insp.get_columns("libraries")}
+        assert "cancel_requested_at" not in {c["name"] for c in insp.get_columns("jobs")}
+    engine.dispose()

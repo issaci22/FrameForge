@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Film, FolderOpen, FolderSearch, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Film, FolderMinus, FolderOpen, FolderSearch, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import { useAction, useLibraries } from "../api/hooks";
-import type { Library, ValidationThresholds } from "../api/types";
+import type { ExclusionsApplied, Library, ValidationThresholds } from "../api/types";
 import { PathPicker } from "../components/PathPicker";
 import { RetainedOriginals } from "../components/RetainedOriginals";
 import { StorageEditor } from "../components/StorageEditor";
 import { Timeline } from "../components/media";
-import { Callout, Empty, ErrorState, Field, LoadingState, Menu, Modal, NumberInput, PageHeader, Section, SettingRow, Toggle, useToast } from "../components/ui";
+import { Callout, Empty, ErrorState, Field, LoadingState, Menu, Modal, NumberInput, PageHeader, Section, SettingRow, Toggle, Tooltip, useToast } from "../components/ui";
 import { useLive } from "../live/events";
-import { ago, bytes } from "../lib/format";
+import { checkExclusion, rootOf, splitExcluded } from "../lib/exclusions";
+import { ago, bytes, plural } from "../lib/format";
 import { storageBody, storageOf, storageSentence, storageTitle, usesBackupFolder, usesOutputFolder, type StorageValue } from "../lib/storage";
 
 const STATUS_TEXT: Record<string, string> = {
@@ -22,6 +23,7 @@ const STATUS_TEXT: Record<string, string> = {
   failed: "failed",
   error: "unreadable",
   missing: "missing",
+  excluded: "excluded",
 };
 
 export function LibrariesPage() {
@@ -98,6 +100,23 @@ function LibraryCard({ lib, onEdit }: { lib: Library; onEdit: () => void }) {
           <div className="mono small faint ellipsis" title={lib.paths.join(", ")}>
             {lib.paths.join(", ")}
           </div>
+          {lib.exclude_folders.length > 0 && (
+            <Tooltip
+              text={
+                <div className="stack gap-1">
+                  {lib.exclude_folders.map((f) => (
+                    <span key={f} className="mono">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              }
+            >
+              <span className="small faint row gap-1" tabIndex={0}>
+                <FolderMinus size={13} /> Skips {plural(lib.exclude_folders.length, "folder")}
+              </span>
+            </Tooltip>
+          )}
         </div>
         <div className="lib-actions">
           <button className="btn sm" disabled={scanning} onClick={() => scan.mutate(undefined, { onError: (e) => toast((e as Error).message, "err") })}>
@@ -187,6 +206,18 @@ function LibraryCard({ lib, onEdit }: { lib: Library; onEdit: () => void }) {
   );
 }
 
+/** What saving did, including excluded folders that applied right away. */
+function savedText(applied: ExclusionsApplied | null | undefined): string {
+  if (!applied) return "Library saved";
+  const parts = ["Library saved."];
+  if (applied.queued_cancelled) parts.push(`${plural(applied.queued_cancelled, "queued job")} in excluded folders ${applied.queued_cancelled === 1 ? "was" : "were"} cancelled.`);
+  if (applied.running) parts.push(`${plural(applied.running, "running job")} in excluded folders will finish.`);
+  if (applied.files_excluded) parts.push(`${plural(applied.files_excluded, "file")} now excluded.`);
+  if (applied.files_restored) parts.push(`${plural(applied.files_restored, "file")} included again; the next scan picks ${applied.files_restored === 1 ? "it" : "them"} up.`);
+  if (parts.length === 1) parts.push("Excluded folders updated.");
+  return parts.join(" ");
+}
+
 export const DEFAULT_VALIDATION: ValidationThresholds = {
   duration_tolerance_pct: 2,
   min_output_bytes: 1024 * 1024,
@@ -206,8 +237,11 @@ function LibraryEditor({ library, onClose }: { library: Library | null; onClose:
   const [enabled, setEnabled] = useState(library?.enabled ?? true);
   const [automation, setAutomation] = useState(library?.automation_enabled ?? true);
   const [excludes, setExcludes] = useState((library?.exclude_patterns ?? []).join("\n"));
+  const [excludedFolders, setExcludedFolders] = useState<string[]>(library?.exclude_folders ?? []);
+  const [excludeDraft, setExcludeDraft] = useState("");
+  const [excludeError, setExcludeError] = useState<string | null>(null);
   const [validation, setValidation] = useState<ValidationThresholds>(library?.validation ?? DEFAULT_VALIDATION);
-  const [picking, setPicking] = useState<{ kind: "path"; index: number } | { kind: "output" | "backup" } | null>(null);
+  const [picking, setPicking] = useState<{ kind: "path"; index: number } | { kind: "output" | "backup" | "exclude" } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const save = useAction(
@@ -222,6 +256,7 @@ function LibraryEditor({ library, onClose }: { library: Library | null; onClose:
         enabled,
         automation_enabled: automation,
         exclude_patterns: excludes.split("\n").map((s) => s.trim()).filter(Boolean),
+        exclude_folders: excludedFolders,
         validation,
       };
       return library ? api.put<Library>(`/libraries/${library.id}`, body) : api.post<Library>("/libraries", body);
@@ -229,15 +264,30 @@ function LibraryEditor({ library, onClose }: { library: Library | null; onClose:
     [["libraries"], ["stats"]],
   );
 
-  const submit = () =>
+  const roots = paths.filter((p) => p.trim());
+  const addExclusion = (raw: string) => {
+    const r = checkExclusion(raw, roots, excludedFolders);
+    if ("error" in r) return setExcludeError(r.error);
+    setExcludedFolders([...excludedFolders, r.path]);
+    setExcludeDraft("");
+    setExcludeError(null);
+  };
+
+  const submit = () => {
+    if (excludeDraft.trim()) {
+      // Never drop a half-entered exclusion silently: the user meant to keep something out.
+      setExcludeError(`Press Exclude to add “${excludeDraft.trim()}”, or clear the field.`);
+      return;
+    }
     save.mutate(undefined, {
       onSuccess: (lib) => {
-        toast(library ? "Library saved" : `Added ${lib.name}. Scanning now…`);
+        toast(library ? savedText(lib.exclusions_applied) : `Added ${lib.name}. Scanning now…`);
         lib.warnings?.forEach((w) => toast(w, "err"));
         onClose();
       },
       onError: (e) => setError((e as Error).message),
     });
+  };
 
   const setV = <K extends keyof ValidationThresholds>(k: K, v: ValidationThresholds[K]) => setValidation({ ...validation, [k]: v });
 
@@ -289,6 +339,59 @@ function LibraryEditor({ library, onClose }: { library: Library | null; onClose:
               <div>
                 <button className="btn sm ghost" onClick={() => setPaths([...paths, ""])}>
                   <Plus size={14} /> Add folder
+                </button>
+              </div>
+            </div>
+          </Field>
+        </div>
+
+        <div className="sub-section">
+          <Field
+            label="Excluded folders"
+            help="Nothing inside these folders, sub-folders included, is ever scanned or converted. Applies when you save: queued jobs inside them are cancelled, running jobs finish. Files on disk are never changed."
+            error={excludeError}
+          >
+            <div className="stack gap-2">
+              {excludedFolders.length === 0 && <div className="small faint">None: every sub-folder is included.</div>}
+              {excludedFolders.map((f) => {
+                const { root, rest } = splitExcluded(f, roots);
+                return (
+                  <div className="row" key={f}>
+                    <div className={`excluded-folder mono ${root ? "" : "is-invalid"}`} title={root ? f : `${f} isn't inside this library's folders any more`}>
+                      <FolderMinus size={14} />
+                      <span className="ellipsis">
+                        {root && <span className="faint">{root === "/" ? "/" : `${root}/`}</span>}
+                        {rest}
+                      </span>
+                    </div>
+                    <button className="btn icon ghost" onClick={() => setExcludedFolders(excludedFolders.filter((x) => x !== f))} title="Stop excluding" aria-label={`Stop excluding ${f}`}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                );
+              })}
+              <div className="row">
+                <input
+                  className="input mono"
+                  value={excludeDraft}
+                  placeholder={`${roots[0] ?? "/media"}/Archive`}
+                  aria-label="Folder to exclude"
+                  onChange={(e) => {
+                    setExcludeDraft(e.target.value);
+                    setExcludeError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addExclusion(excludeDraft);
+                    }
+                  }}
+                />
+                <button className="btn icon" onClick={() => setPicking({ kind: "exclude" })} title="Browse" aria-label="Browse for a folder to exclude" disabled={!roots.length}>
+                  <FolderSearch size={16} />
+                </button>
+                <button className="btn" disabled={!excludeDraft.trim()} onClick={() => addExclusion(excludeDraft)}>
+                  <Plus size={14} /> Exclude
                 </button>
               </div>
             </div>
@@ -370,10 +473,21 @@ function LibraryEditor({ library, onClose }: { library: Library | null; onClose:
 
       {picking && (
         <PathPicker
-          initial={picking.kind === "path" ? paths[picking.index] : picking.kind === "output" ? outputPath || paths[0] : backupPath || paths[0]}
+          initial={
+            picking.kind === "path"
+              ? paths[picking.index]
+              : picking.kind === "output"
+                ? outputPath || paths[0]
+                : picking.kind === "exclude"
+                  ? excludeDraft.trim() && rootOf(excludeDraft.trim(), roots)
+                    ? excludeDraft.trim()
+                    : roots[0]
+                  : backupPath || paths[0]
+          }
           onClose={() => setPicking(null)}
           onPick={(p) => {
             if (picking.kind === "path") setPaths(paths.map((x, j) => (j === picking.index ? p : x)));
+            else if (picking.kind === "exclude") addExclusion(p);
             else if (picking.kind === "output") setOutputPath(p);
             else setBackupPath(p);
             setPicking(null);

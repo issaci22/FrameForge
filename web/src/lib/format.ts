@@ -92,6 +92,11 @@ export function codec(c: string | null | undefined): string {
   return CODEC_LABELS[c] ?? c.toUpperCase();
 }
 
+/** "1 job", "3 jobs". */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 export const PRIORITIES = ["Background", "Low", "Normal", "High", "Critical"];
 export const priorityName = (p: number) => PRIORITIES[p] ?? String(p);
 
