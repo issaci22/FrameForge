@@ -8,7 +8,7 @@ import posixpath
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,8 @@ from frameforge_shared.protocol import ValidationThresholds
 from ..auth.sessions import require_user
 from ..db.models import Library, RetainedOriginal
 from ..db.session import get_db
-from ..services import retention, scanner, stats
+from ..services import exclusions, retention, scanner, stats
+from ..services import queue as queue_service
 from ..services.jobs import DEFAULT_BACKUP_DIR_NAME
 from ..services.storage_policy import (
     MAX_RETENTION_DAYS,
@@ -50,6 +51,9 @@ class LibraryIn(BaseModel):
     automation_enabled: bool = True
     scan_interval_minutes: int = Field(60, ge=5, le=10080)
     exclude_patterns: list[str] = Field(default_factory=list)
+    # Folders inside `paths` that are never scanned or converted. Normalized and de-duplicated on validation.
+    # Left out (older clients): an update keeps the current list rather than silently dropping every exclusion.
+    exclude_folders: list[str] | None = None
     # Legacy single value. Used only when none of the storage fields below are sent.
     output_policy: OutputPolicy = "backup"
     output_location: OutputLocation | None = None
@@ -84,6 +88,12 @@ class LibraryIn(BaseModel):
     def _opt_path(cls, v: str | None) -> str | None:
         return _norm_path(v) if v and v.strip() else None
 
+    @model_validator(mode="after")
+    def _exclusions(self) -> LibraryIn:
+        if self.exclude_folders is not None:
+            self.exclude_folders = exclusions.normalize_folders(self.exclude_folders, self.paths)
+        return self
+
 
 def library_view(lib: Library) -> dict:
     return {
@@ -94,6 +104,7 @@ def library_view(lib: Library) -> dict:
         "automation_enabled": lib.automation_enabled,
         "scan_interval_minutes": lib.scan_interval_minutes,
         "exclude_patterns": lib.exclude_patterns,
+        "exclude_folders": lib.exclude_folders or [],
         "output_policy": storage_of(lib).legacy,
         "output_location": storage_of(lib).output_location,
         "original_handling": storage_of(lib).original_handling,
@@ -115,7 +126,10 @@ _STORAGE_FIELDS = {"output_policy", "output_location", "original_handling", "ret
 
 
 def _plain_fields(body: LibraryIn) -> dict:
-    return body.model_dump(exclude=_STORAGE_FIELDS)
+    out = body.model_dump(exclude=_STORAGE_FIELDS)
+    if out["exclude_folders"] is None:
+        del out["exclude_folders"]
+    return out
 
 
 async def _retention_summary(db: AsyncSession, lib: Library) -> dict:
@@ -154,6 +168,9 @@ def _check(body: LibraryIn) -> list[str]:
     for label, p in (("Output", body.output_path), ("Backup", body.backup_path)):
         if p and not os.path.isdir(p):
             warnings.append(f"{label} folder {p} doesn't exist yet; it will be created when needed")
+    for p in body.exclude_folders or []:
+        if not os.path.isdir(p):
+            warnings.append(f"Excluded folder {p} doesn't exist yet; it will be skipped if it appears")
     return warnings
 
 
@@ -197,13 +214,22 @@ async def update_library(library_id: int, body: LibraryIn, db: AsyncSession = De
         raise HTTPException(404, "Library not found")
     warnings = _check(body)
     old_days = storage_of(lib).retention_days
+    old_exclusions = list(lib.exclude_folders or [])
     for key, value in _plain_fields(body).items():
         setattr(lib, key, value)
     apply_to(lib, body.storage())
     lib.validation = body.validation.model_dump()
     await retention.on_retention_days_changed(db, lib, old_days)
-    await db.commit()
-    return {**library_view(lib), "warnings": warnings}
+    applied = None
+    if lib.exclude_folders != old_exclusions:
+        # Excluded folders apply right away: queued jobs inside them are cancelled, running ones finish.
+        async with queue_service.queue_lock:
+            applied = await exclusions.apply(db, lib)
+            await db.commit()
+        exclusions.publish_applied(lib.id, applied)
+    else:
+        await db.commit()
+    return {**library_view(lib), "warnings": warnings, "exclusions_applied": applied}
 
 
 @router.delete("/{library_id}")

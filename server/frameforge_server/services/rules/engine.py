@@ -140,13 +140,17 @@ def decide(
     *,
     has_active_job: bool = False,
     failed_profile_ids: set[int] | None = None,
+    cancelled_profile_ids: set[int] | None = None,
     with_traces: bool = False,
 ) -> Decision:
     """Pick the first enabled rule that matches ``file`` and apply safety guards."""
     if file.ignored:
         return Decision("none", "Ignored by you")
-    if file.status in ("missing", "error", "new"):
-        return Decision("none", {"missing": "File is missing", "error": "File could not be analyzed", "new": "Not analyzed yet"}[file.status])
+    if file.status in ("missing", "error", "new", "excluded"):
+        return Decision(
+            "none",
+            {"missing": "File is missing", "error": "File could not be analyzed", "new": "Not analyzed yet", "excluded": "In an excluded folder"}[file.status],
+        )
     if has_active_job:
         return Decision("none", "Already in the queue")
     if getattr(file, "role", None) == "kept_original":
@@ -182,6 +186,15 @@ def decide(
             return Decision("skip", f"Already {spec.target_label()}; nothing to gain", rule=rule, profile=profile, trace=trace, rule_traces=traces)
         if failed_profile_ids and profile.id in failed_profile_ids:
             return Decision("skip", f"A previous “{profile.name}” attempt failed; retry it from the job page", rule=rule, profile=profile, trace=trace, rule_traces=traces)
+        if cancelled_profile_ids and profile.id in cancelled_profile_ids:
+            return Decision(
+                "skip",
+                f"You cancelled the last “{profile.name}” job; retry it from the Queue or queue it from Files",
+                rule=rule,
+                profile=profile,
+                trace=trace,
+                rule_traces=traces,
+            )
         return Decision(
             "transcode",
             f"Rule “{rule.name}” → {profile.name} ({PRIORITY_NAMES.get(rule.priority, rule.priority)} priority)",

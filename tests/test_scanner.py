@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +22,7 @@ def touch(root: Path, rel: str) -> None:
 
 
 def scan(root: Path, **kw: object) -> set[str]:
-    lib = Library(name="VODs", paths=[root.as_posix()], exclude_patterns=kw.pop("exclude_patterns", []), **kw)
+    lib = Library(name="VODs", paths=[root.as_posix()], exclude_patterns=kw.pop("exclude_patterns", []), exclude_folders=kw.pop("exclude_folders", []), **kw)
     files, errors = walk_library(lib)
     assert errors == []
     return {f.relative.replace("\\", "/") for f in files}
@@ -60,3 +61,73 @@ def test_missing_root_is_reported(tmp_path: Path) -> None:
     lib = Library(name="VODs", paths=[(tmp_path / "unmounted").as_posix()], exclude_patterns=[])
     files, errors = walk_library(lib)
     assert files == [] and "not found or not mounted" in errors[0]
+
+
+# ---------------------------------------------------------------------------
+# Excluded folders
+# ---------------------------------------------------------------------------
+
+LAYOUT = [
+    "keep.mkv",
+    "Archive/old.mkv",
+    "Archive/2023/older.mp4",
+    "Archive2/keep-too.mkv",
+    "2024/final.mkv",
+    "2024/raw/take-1.mkv",
+    "2024/rawer/keep.mkv",
+    "Old Streams [2023] & B-roll/ep 1.mkv",
+]
+
+
+def test_excluded_folders_and_everything_inside_are_skipped(tmp_path: Path) -> None:
+    for rel in LAYOUT:
+        touch(tmp_path, rel)
+    root = tmp_path.as_posix()
+    excluded = [f"{root}/Archive", f"{root}/2024/raw", f"{root}/Old Streams [2023] & B-roll"]
+    assert scan(tmp_path, exclude_folders=excluded) == {"keep.mkv", "Archive2/keep-too.mkv", "2024/final.mkv", "2024/rawer/keep.mkv"}
+
+
+def test_excluded_folders_are_never_entered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for rel in LAYOUT:
+        touch(tmp_path, rel)
+    root = tmp_path.as_posix()
+    visited: list[str] = []
+    real_walk = os.walk
+
+    def spy(top: str, **kw: object):  # noqa: ANN202
+        for dirpath, dirnames, filenames in real_walk(top, **kw):  # type: ignore[arg-type]
+            visited.append(dirpath)
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr("frameforge_server.services.scanner.os.walk", spy)
+    scan(tmp_path, exclude_folders=[f"{root}/Archive"])
+    assert not any(v == f"{root}/Archive" or v.startswith(f"{root}/Archive/") for v in visited)
+
+
+def test_exclusions_ignore_case(tmp_path: Path) -> None:
+    for rel in ["Archive/old.mkv", "keep.mkv"]:
+        touch(tmp_path, rel)
+    assert scan(tmp_path, exclude_folders=[f"{tmp_path.as_posix()}/ARCHIVE/"]) == {"keep.mkv"}
+
+
+def test_symlinked_file_pointing_into_an_excluded_folder_is_skipped(tmp_path: Path) -> None:
+    touch(tmp_path, "Archive/secret.mkv")
+    touch(tmp_path, "keep.mkv")
+    os.symlink(tmp_path / "Archive" / "secret.mkv", tmp_path / "link-to-secret.mkv")
+    os.symlink(tmp_path / "keep.mkv", tmp_path / "link-to-keep.mkv")
+    assert scan(tmp_path, exclude_folders=[f"{tmp_path.as_posix()}/Archive"]) == {"keep.mkv", "link-to-keep.mkv"}
+
+
+def test_symlinked_folders_are_still_not_followed(tmp_path: Path) -> None:
+    touch(tmp_path, "Archive/secret.mkv")
+    os.symlink(tmp_path / "Archive", tmp_path / "shortcut", target_is_directory=True)
+    assert scan(tmp_path, exclude_folders=[f"{tmp_path.as_posix()}/Archive"]) == set()
+
+
+def test_a_library_folder_inside_another_folders_exclusion_is_skipped(tmp_path: Path) -> None:
+    touch(tmp_path, "Archive/keep/old.mkv")
+    touch(tmp_path, "new.mkv")
+    root = tmp_path.as_posix()
+    lib = Library(name="VODs", paths=[root, f"{root}/Archive/keep"], exclude_patterns=[], exclude_folders=[f"{root}/Archive"])
+    files, errors = walk_library(lib)
+    assert errors == [] and {f.relative for f in files} == {"new.mkv"}

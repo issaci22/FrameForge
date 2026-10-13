@@ -73,6 +73,7 @@ def job_summary(job: Job) -> dict[str, Any]:
         "assigned_at": job.assigned_at.isoformat() if job.assigned_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "cancel_requested": job.cancel_requested_at is not None,
     }
 
 
@@ -238,7 +239,27 @@ def _apply_media(file: MediaFile, info: MediaInfo) -> None:
                 setattr(file.meta, col, getattr(fresh, col))
 
 
-async def requeue(db: AsyncSession, job: Job, reason: str, *, exclude_node: bool = False, count_attempt: bool = True) -> None:
+async def finish_cancelled(db: AsyncSession, job: Job, message: str) -> None:
+    """End a job the user asked to stop, instead of queueing it again."""
+    job.state = "cancelled"
+    job.finished_at = utcnow()
+    job.waiting_reason = None
+    job.fps = job.speed = job.eta_seconds = None
+    await add_event(db, job.id, "cancelled", message)
+    file = await db.get(MediaFile, job.file_id) if job.file_id else None
+    if file is not None and file.status in ("queued", "processing"):
+        file.status = "ready"
+
+
+async def requeue(db: AsyncSession, job: Job, reason: str, *, exclude_node: bool = False, count_attempt: bool = True) -> bool:
+    """Put a job back in the queue. Returns False when it was ended as cancelled instead.
+
+    A job the user asked to stop is never requeued, whatever happened to its node: requeueing it would start
+    work the user just stopped.
+    """
+    if job.cancel_requested_at is not None:
+        await finish_cancelled(db, job, f"Stopped as you asked ({reason}). The source file was not modified.")
+        return False
     if exclude_node and job.node_id is not None:
         job.excluded_nodes = sorted(set(job.excluded_nodes or []) | {job.node_id})
     if count_attempt:
@@ -251,6 +272,7 @@ async def requeue(db: AsyncSession, job: Job, reason: str, *, exclude_node: bool
     job.assigned_at = job.started_at = None
     job.waiting_reason = reason
     await add_event(db, job.id, "requeued", reason, level="warn")
+    return True
 
 
 async def record_result(db: AsyncSession, job: Job, result: JobResult, max_attempts: int) -> None:
@@ -261,11 +283,18 @@ async def record_result(db: AsyncSession, job: Job, result: JobResult, max_attem
         await add_event(db, job.id, "note", note, level="warn")
     job.notes = list(result.notes)
 
+    if job.cancel_requested_at is not None and result.status in ("failed", "rejected"):
+        # The user asked to stop it: whatever went wrong on the way, it ends as cancelled, not retried.
+        if result.status == "failed" and result.diagnosis:
+            await add_event(db, job.id, "note", f"While stopping, the node reported: {result.diagnosis.title}", level="warn")
+        result = result.model_copy(update={"status": "cancelled"})
+
     if result.status == "rejected":
         await requeue(db, job, result.reject_reason or "Node declined the job", exclude_node=True, count_attempt=False)
         return
 
     job.finished_at = now
+    job.waiting_reason = None  # e.g. "Stopping…": a finished job isn't waiting for anything
     job.encoder = result.encoder_used or job.encoder
     if result.hw_decode_used is not None:
         job.hw_decode = result.hw_decode_used
@@ -273,6 +302,8 @@ async def record_result(db: AsyncSession, job: Job, result: JobResult, max_attem
         job.validation = result.validation.model_dump(mode="json")
 
     if result.status == "completed":
+        if job.cancel_requested_at is not None:
+            await add_event(db, job.id, "note", "It finished before the stop request reached the node, so the conversion was kept", level="warn")
         job.state = "completed"
         job.progress = 100.0
         job.eta_seconds = 0
@@ -311,8 +342,8 @@ async def record_result(db: AsyncSession, job: Job, result: JobResult, max_attem
         job.error_code = diag.code if diag else "unknown"
         if diag and diag.code in TRANSIENT_FAILURES and job.attempts + 1 < max_attempts:
             await add_event(db, job.id, "failed", f"{diag.title}. Retrying automatically.", level="warn")
-            await requeue(db, job, f"Retrying after: {diag.title}", exclude_node=diag.code != "node_lost")
-            job.finished_at = None
+            if await requeue(db, job, f"Retrying after: {diag.title}", exclude_node=diag.code != "node_lost"):
+                job.finished_at = None
             return
         job.state = "failed"
         await add_event(db, job.id, "failed", diag.title if diag else "Failed", level="error", data={"code": job.error_code})

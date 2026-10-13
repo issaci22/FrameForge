@@ -48,7 +48,13 @@ export function JobRow({ job, actions }: { job: Job; actions?: React.ReactNode }
             <div className="job-progress-head">
               <span className="row gap-2 min0">
                 <StateChip state={job.state} />
-                {active && job.state !== "transcoding" && <span className="faint small ellipsis">{STAGE_TEXT[job.state]}</span>}
+                {active && job.cancel_requested && job.state !== "finalizing" ? (
+                  <span className="small ellipsis text-warn" title={job.waiting_reason ?? undefined}>
+                    {job.waiting_reason ?? "Stopping…"}
+                  </span>
+                ) : (
+                  active && job.state !== "transcoding" && <span className="faint small ellipsis">{STAGE_TEXT[job.state]}</span>
+                )}
                 {job.state === "failed" && job.error_title && <span className="small ellipsis text-err">{job.error_title}</span>}
                 {job.state === "completed" && job.source_size && job.output_size != null && (
                   <span className="small muted mono ellipsis">

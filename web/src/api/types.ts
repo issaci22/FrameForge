@@ -61,6 +61,8 @@ export interface Job {
   assigned_at: string | null;
   started_at: string | null;
   finished_at: string | null;
+  /** The user asked to stop it; it shows as cancelled once the node confirms. */
+  cancel_requested: boolean;
   // live-only
   frame?: number | null;
   bitrate_kbps?: number | null;
@@ -172,6 +174,8 @@ export interface Library {
   automation_enabled: boolean;
   scan_interval_minutes: number;
   exclude_patterns: string[];
+  /** Folders inside `paths` that are never scanned or converted. */
+  exclude_folders: string[];
   output_policy: OutputPolicy;
   output_location: OutputLocation;
   original_handling: OriginalHandling;
@@ -189,6 +193,24 @@ export interface Library {
   scan_state: ScanState | null;
   stats?: { files_by_status: Record<string, number>; files: number; original_bytes: number; current_bytes: number };
   warnings?: string[];
+  /** Only on a save that changed the excluded folders. */
+  exclusions_applied?: ExclusionsApplied | null;
+}
+
+export interface ExclusionsApplied {
+  queued_cancelled: number;
+  running: number;
+  files_excluded: number;
+  files_restored: number;
+}
+
+/** POST /jobs/clear-queue */
+export interface ClearQueueResult {
+  cancelled: number;
+  stopping: number;
+  stopping_offline: number;
+  still_running: number;
+  finalizing: number;
 }
 
 export interface MediaSummary {
@@ -210,7 +232,7 @@ export interface MediaSummary {
   resolution_label: string | null;
 }
 
-export type FileStatus = "new" | "ready" | "queued" | "processing" | "processed" | "failed" | "error" | "missing";
+export type FileStatus = "new" | "ready" | "queued" | "processing" | "processed" | "failed" | "error" | "missing" | "excluded";
 
 export interface MediaFile {
   id: number;

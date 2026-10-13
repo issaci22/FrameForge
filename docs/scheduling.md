@@ -70,6 +70,22 @@ A node can be told not to start work while its machine is busy with *something e
 These limits are only checked while the node is running **no FrameForge jobs**. Otherwise FrameForge's own load would
 block its second slot. If a GPU's utilization can't be read (Intel), the GPU limit has no effect.
 
+## Clearing the queue and stopping jobs
+
+**Queue → Clear queue** cancels every pending job at once. They move to **Cancelled** (the history is kept, and so
+are completed and failed jobs), and scans don't queue the same files again until you press **Retry** or clear the
+Cancelled history. Files are never touched.
+
+Running jobs keep running unless you switch on **Also stop running jobs** in the confirmation. Stopping works like
+the **Stop** button: the node ends FFmpeg, deletes the partial output and leaves the original untouched. A job shows
+*Stopping…* until its node confirms, then moves to Cancelled. A job that is already moving files into place
+(*finalizing*) can't be stopped and always finishes. A job on an offline node stops when that node reconnects, or ends
+as cancelled if it stays away.
+
+A job you stopped is never requeued: if its node drops, rejects it or reports a temporary failure, it ends as
+cancelled instead of being retried. If it finishes before the stop request arrives, the conversion is kept and the
+job says so.
+
 ## Concurrency
 
 Each node runs up to *max concurrent jobs* at once. With **Reserve last slot for Normal+**, Background and Low jobs can

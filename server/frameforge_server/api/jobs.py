@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.sessions import require_user
 from ..db.models import ACTIVE_JOB_STATES, TERMINAL_JOB_STATES, Job, JobEvent, MediaFile, Profile
 from ..db.session import get_db
-from ..db.types import utcnow
 from ..logging_setup import tail_file
 from ..services import jobs as job_service
+from ..services import queue as queue_service
+from ..services.exclusions import EXCLUDED_STATUS, matcher_for
 from ..services.node_manager import manager
 from ..services.scheduler import scheduler
 
@@ -99,30 +100,28 @@ async def job_log(job_id: int, lines: int = Query(2000, ge=10, le=100000)) -> st
     return "\n".join(await asyncio.to_thread(tail_file, job_service.job_log_path(job_id), lines))
 
 
-@router.post("/{job_id}/cancel")
-async def cancel_job(job_id: int, db: AsyncSession = Depends(get_db)) -> dict:
-    job = await _get(db, job_id)
+def _check_cancellable(job: Job) -> None:
     if job.state in TERMINAL_JOB_STATES:
         raise HTTPException(409, "This job has already finished")
     if job.state == "finalizing":
         raise HTTPException(409, "The output is being moved into place right now. Cancelling could leave files half-replaced, so it isn't allowed at this step.")
-    if job.state in ACTIVE_JOB_STATES and await manager.cancel(job):
-        job.waiting_reason = "Cancelling…"
-        await job_service.add_event(db, job.id, "cancel", "Cancel requested")
-        await db.commit()
-        job_service.publish_job(job)
-        return job_service.job_summary(job)
-    job.state = "cancelled"
-    job.finished_at = utcnow()
-    job.waiting_reason = None
-    await job_service.add_event(db, job.id, "cancelled", "Cancelled before it started. Nothing was changed.")
-    if job.file_id:
-        f = await db.get(MediaFile, job.file_id)
-        if f is not None and f.status in ("queued", "processing"):
-            f.status = "ready"
-    await db.commit()
-    job_service.publish_job(job)
-    scheduler.wake()
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    """Queued: cancelled at once. Running: the node is asked to stop; the job shows as cancelled once it confirms."""
+    async with queue_service.queue_lock:
+        job = await _get(db, job_id)
+        _check_cancellable(job)
+        if job.state == "queued":
+            cancelled = await queue_service.cancel_queued(db, job_ids=[job.id], message="Cancelled before it started. Nothing was changed.", by_user=True)
+            await db.commit()
+            await db.refresh(job)
+            if cancelled:
+                job_service.publish_job(job)
+                return job_service.job_summary(job)
+            _check_cancellable(job)  # a node picked it up meanwhile: stop it like any running job
+        await queue_service.request_stop(db, [job])
     return job_service.job_summary(job)
 
 
@@ -137,11 +136,14 @@ async def retry_job(job_id: int, db: AsyncSession = Depends(get_db)) -> dict:
     profile = await db.get(Profile, job.profile_id) if job.profile_id else None
     if profile is None:
         raise HTTPException(400, "The profile used by this job was deleted")
-    if await job_service.active_job_for_file(db, f.id):
-        raise HTTPException(409, "This file already has a job in the queue")
-    new = await job_service.create_job(db, f, profile, priority=job.priority, manual=True)
-    await job_service.add_event(db, new.id, "retry", f"Retry of job #{job.id}")
-    await db.commit()
+    if f.status == EXCLUDED_STATUS or matcher_for(f.library).match_any(f.path):
+        raise HTTPException(409, "This file is in an excluded folder. Remove the exclusion in the library settings to convert it.")
+    async with queue_service.queue_lock:
+        if await job_service.active_job_for_file(db, f.id):
+            raise HTTPException(409, "This file already has a job in the queue")
+        new = await job_service.create_job(db, f, profile, priority=job.priority, manual=True)
+        await job_service.add_event(db, new.id, "retry", f"Retry of job #{job.id}")
+        await db.commit()
     job_service.publish_job(new, "job.created")
     scheduler.wake()
     return job_service.job_summary(new)
@@ -172,6 +174,16 @@ async def delete_job(job_id: int, db: AsyncSession = Depends(get_db)) -> dict:
     await db.commit()
     job_service.cleanup_job_log(job_id)
     return {"ok": True}
+
+
+class ClearQueueRequest(BaseModel):
+    stop_running: bool = False
+
+
+@router.post("/clear-queue")
+async def clear_queue(body: ClearQueueRequest, db: AsyncSession = Depends(get_db)) -> dict:
+    """Cancel every queued job (they move to Cancelled; history is kept). Optionally ask nodes to stop running jobs."""
+    return await queue_service.clear_queue(db, stop_running=body.stop_running)
 
 
 class ClearRequest(BaseModel):

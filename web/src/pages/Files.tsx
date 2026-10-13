@@ -17,6 +17,7 @@ const STATUS_LABEL: Record<FileStatus, { text: string; cls: string }> = {
   failed: { text: "Failed", cls: "err" },
   error: { text: "Unreadable", cls: "err" },
   missing: { text: "Missing", cls: "warn" },
+  excluded: { text: "Excluded", cls: "" },
 };
 
 const PAGE = 100;
@@ -254,6 +255,11 @@ function FileDrawer({ id, onClose }: { id: number; onClose: () => void }) {
       }
     >
       {f.status === "error" && <Callout kind="err" title="FrameForge couldn't read this file">{f.probe_error}. Interrupted OBS recordings often look like this.</Callout>}
+      {f.status === "excluded" && (
+        <Callout kind="info" title="In an excluded folder">
+          This file is never scanned or converted. To include it again, remove its folder from the library's excluded folders.
+        </Callout>
+      )}
 
       <section>
         <div className="group-title">What FrameForge will do</div>
@@ -286,7 +292,7 @@ function FileDrawer({ id, onClose }: { id: number; onClose: () => void }) {
         )}
       </section>
 
-      {!["missing", "error", "new"].includes(f.status) && (
+      {!["missing", "error", "new", "excluded"].includes(f.status) && (
         <section className="convert-box">
           <div className="group-title">Convert now</div>
           <div className="form-grid">

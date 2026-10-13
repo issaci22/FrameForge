@@ -457,6 +457,27 @@
   flex-direction: column;
   gap: 6px;
 }
+/* An excluded folder in the library editor: read-only, so a surface rather than an input. */
+.excluded-folder {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: var(--fs-small);
+}
+.excluded-folder svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+.excluded-folder.is-invalid {
+  background: var(--err-soft);
+  color: var(--err);
+}
 @media (max-width: 760px) {
   .lib-head {
     flex-wrap: wrap;

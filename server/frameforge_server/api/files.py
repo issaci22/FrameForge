@@ -17,7 +17,9 @@ from ..auth.sessions import require_user
 from ..db.models import Job, MediaFile, MediaMetadata, Profile, Rule
 from ..db.session import get_db
 from ..services import jobs as job_service
+from ..services import queue as queue_service
 from ..services import retention
+from ..services.exclusions import EXCLUDED_STATUS, matcher_for
 from ..services.node_manager import manager
 from ..services.rules.engine import build_context, decide
 from ..services.scanner import metadata_from_info
@@ -118,7 +120,10 @@ async def get_file(file_id: int, db: AsyncSession = Depends(get_db)) -> dict:
     rules = list((await db.execute(select(Rule))).scalars())
     active = await job_service.active_job_for_file(db, f.id)
     failed = set((await db.execute(select(Job.profile_id).where(Job.file_id == f.id, Job.state == "failed"))).scalars())
-    decision = decide(f, rules, build_context(f, manager.hardware_snapshot()), has_active_job=active is not None, failed_profile_ids=failed, with_traces=True)
+    held = set((await db.execute(select(Job.profile_id).where(Job.file_id == f.id, Job.state == "cancelled", Job.cancel_requested_at.is_not(None)))).scalars())
+    decision = decide(
+        f, rules, build_context(f, manager.hardware_snapshot()), has_active_job=active is not None, failed_profile_ids=failed, cancelled_profile_ids=held, with_traces=True
+    )
     jobs = (await db.execute(select(Job).where(Job.file_id == f.id).order_by(Job.id.desc()).limit(20))).scalars().all()
     return {
         **file_view(f),
@@ -142,17 +147,20 @@ class QueueRequest(BaseModel):
 @router.post("/{file_id}/queue", status_code=201)
 async def queue_file(file_id: int, body: QueueRequest, db: AsyncSession = Depends(get_db)) -> dict:
     f = await _get(db, file_id)
+    if f.status == EXCLUDED_STATUS or matcher_for(f.library).match_any(f.path):
+        raise HTTPException(409, "This file is in an excluded folder. Remove the exclusion in the library settings to convert it.")
     if f.status in ("missing", "new", "error"):
         raise HTTPException(400, "This file can't be processed until it has been analyzed successfully")
-    if await job_service.active_job_for_file(db, f.id):
-        raise HTTPException(409, "This file already has a job in the queue")
     if retention.is_being_deleted(f.path):
         raise HTTPException(409, "This original is being deleted by its retention policy right now")
     profile = await db.get(Profile, body.profile_id)
     if profile is None:
         raise HTTPException(404, "Profile not found")
-    job = await job_service.create_job(db, f, profile, priority=body.priority, manual=True)
-    await db.commit()
+    async with queue_service.queue_lock:
+        if await job_service.active_job_for_file(db, f.id):
+            raise HTTPException(409, "This file already has a job in the queue")
+        job = await job_service.create_job(db, f, profile, priority=body.priority, manual=True)
+        await db.commit()
     job_service.publish_job(job, "job.created")
     scheduler.wake()
     return job_service.job_summary(job)

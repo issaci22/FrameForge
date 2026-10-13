@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from frameforge_shared import protocol as P
 from frameforge_shared.compat import required_node_features
@@ -23,6 +23,8 @@ from ..db.models import Job, Library, MediaFile
 from ..db.session import sessionmaker
 from ..db.types import utcnow
 from . import jobs as job_service
+from . import queue as queue_service
+from .exclusions import EXCLUDED_STATUS, matcher_for
 from .node_manager import NodeConnection, manager
 from .system_settings import GeneralSettings, load_settings
 from .timewindow import describe_window, in_window
@@ -134,7 +136,20 @@ class Scheduler:
                 job_service.publish_job(job)
 
     async def _try_place(self, db, job: Job, conns: list[NodeConnection], settings: GeneralSettings, libraries: dict[int, Library]) -> str | None:  # noqa: ANN001
-        """Assign the job if possible. Returns None on success, otherwise a human-readable waiting reason."""
+        """Assign the job if possible. Returns None on success, otherwise a human-readable waiting reason.
+
+        None is also returned when the job left the queue another way (cancelled, excluded); it is then
+        refreshed from the database, so publishing it shows its real state.
+        """
+        if job.library_id not in libraries:
+            lib = await db.get(Library, job.library_id) if job.library_id else None
+            if lib is None:
+                return "The job's library no longer exists"
+            libraries[job.library_id] = lib
+        library = libraries[job.library_id]  # type: ignore[index]
+        matcher = matcher_for(library)
+        if folder := matcher.match(job.source_path):
+            return await self._drop_excluded(db, job, folder)
         block = _job_window_block(job, settings)
         if block:
             return block
@@ -169,12 +184,8 @@ class Scheduler:
             return "; ".join(reasons[:3]) if reasons else "No suitable node"
 
         best = min(candidates, key=lambda p: p.score)
-        if job.library_id not in libraries:
-            lib = await db.get(Library, job.library_id) if job.library_id else None
-            if lib is None:
-                return "The job's library no longer exists"
-            libraries[job.library_id] = lib
-        library = libraries[job.library_id]  # type: ignore[index]
+        if folder := matcher.match_link(job.source_path):  # a symlink into an excluded folder (checked only now: it touches the disk)
+            return await self._drop_excluded(db, job, folder)
         plan = job_service.build_plan(job, library, spec)
         assignment = P.JobAssignment(
             job_id=job.id,
@@ -186,6 +197,12 @@ class Scheduler:
             source_media=source,
             frameforge_tag=job_service.frameforge_tag(job),
         )
+        # Claim it only if it is still queued: a cancel committed since this tick read the job must win.
+        claimed = await db.execute(update(Job).where(Job.id == job.id, Job.state == "queued").values(state="assigned").execution_options(synchronize_session=False))
+        if claimed.rowcount != 1:
+            await db.refresh(job)
+            log.info("Job %s left the queue (now %s) before it could be started; not sending it", job.id, job.state)
+            return None
         job.state = "assigned"
         job.node_id = best.conn.node_id
         job.node_name = best.conn.name
@@ -203,10 +220,17 @@ class Scheduler:
         )
         await db.commit()  # commit before sending: the node may report back immediately
         if not await manager.send_assignment(best.conn.node_id, assignment):
-            await job_service.requeue(db, job, f"Couldn't reach {best.conn.name}", count_attempt=False)
-            if file is not None:
+            if await job_service.requeue(db, job, f"Couldn't reach {best.conn.name}", count_attempt=False) and file is not None:
                 file.status = "queued"
             return job.waiting_reason
+        return None
+
+    async def _drop_excluded(self, db, job: Job, folder: str) -> None:  # noqa: ANN001
+        """Never start a job whose file sits in an excluded folder (e.g. queued before the folder was excluded)."""
+        message = f"Not started: {folder} is excluded in the library settings. The file wasn't touched."
+        await queue_service.cancel_queued(db, job_ids=[job.id], message=message, by_user=False, file_status=EXCLUDED_STATUS)
+        await db.commit()
+        await db.refresh(job)
         return None
 
 

@@ -298,6 +298,7 @@ def test_skip_rule_protects_files() -> None:
         ({"status": "missing"}, "missing"),
         ({"status": "error"}, "could not be analyzed"),
         ({"status": "new"}, "Not analyzed"),
+        ({"status": "excluded"}, "excluded folder"),
     ],
 )
 def test_files_that_must_not_be_touched(kwargs: dict[str, Any], reason: str) -> None:
@@ -366,6 +367,14 @@ def test_previously_failed_profile_is_not_retried_automatically() -> None:
     f = media_file()
     d = decide(f, [rule(1, prof=profile(3, HEVC_PROFILE))], ctx_for(f), failed_profile_ids={3})
     assert d.action == "skip" and "failed" in d.reason
+
+
+def test_profile_the_user_cancelled_is_not_queued_again_automatically() -> None:
+    f = media_file()
+    d = decide(f, [rule(1, prof=profile(3, HEVC_PROFILE, name="H.265"))], ctx_for(f), cancelled_profile_ids={3})
+    assert d.action == "skip" and d.reason == "You cancelled the last “H.265” job; retry it from the Queue or queue it from Files"
+    # A later aging stage with another profile still applies, like it does after a failure.
+    assert decide(f, [rule(1, prof=profile(4, AV1_PROFILE))], ctx_for(f), cancelled_profile_ids={3}).action == "transcode"
 
 
 def test_rule_without_profile_does_nothing() -> None:

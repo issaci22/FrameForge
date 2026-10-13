@@ -151,7 +151,7 @@ async def preview(body: PreviewRequest, db: AsyncSession = Depends(get_db)) -> d
         validate_tree(body.conditions)
     except ConditionError as exc:
         raise HTTPException(422, str(exc)) from exc
-    stmt = select(MediaFile).where(MediaFile.status.not_in(("missing", "error", "new")))
+    stmt = select(MediaFile).where(MediaFile.status.not_in(("missing", "error", "new", "excluded")))
     if body.library_id is not None:
         stmt = stmt.where(MediaFile.library_id == body.library_id)
     hw = manager.hardware_snapshot()

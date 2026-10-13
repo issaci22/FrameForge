@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import ACTIVE_JOB_STATES, Job, Library, MediaFile, Node, StatsDaily
 from .node_manager import manager
 
+# Files that sit in a library folder but aren't counted in its size: gone from disk, or in an excluded folder.
+UNMANAGED_STATUSES = ("missing", "excluded")
+
 
 def _local_midnight_utc() -> datetime:
     local_now = datetime.now().astimezone()
@@ -34,7 +37,7 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
                 func.coalesce(func.sum(func.coalesce(MediaFile.original_size, MediaFile.size)), 0),
                 func.coalesce(func.sum(MediaFile.size), 0),
                 func.count(),
-            ).where(MediaFile.status != "missing")
+            ).where(MediaFile.status.not_in(UNMANAGED_STATUSES))
         )
     ).one()
 
@@ -107,7 +110,7 @@ async def library_stats(db: AsyncSession, library: Library) -> dict[str, Any]:
     sizes = (
         await db.execute(
             select(func.coalesce(func.sum(func.coalesce(MediaFile.original_size, MediaFile.size)), 0), func.coalesce(func.sum(MediaFile.size), 0)).where(
-                MediaFile.library_id == library.id, MediaFile.status != "missing"
+                MediaFile.library_id == library.id, MediaFile.status.not_in(UNMANAGED_STATUSES)
             )
         )
     ).one()
